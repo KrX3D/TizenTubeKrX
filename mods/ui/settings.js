@@ -392,6 +392,11 @@ export default function modernUI(update, parameters) {
                             value: 'enableHideWatchedVideos'
                         },
                         {
+                            name: 'Hide Watched Videos in Playlists',
+                            icon: 'PLAYLIST_PLAY',
+                            value: 'enableHideWatchedInPlaylists'
+                        }, 
+                        {
                             name: 'Watched Videos Threshold',
                             value: null,
                             menuId: 'tt-hide-watched-videos-threshold',
@@ -432,6 +437,14 @@ export default function modernUI(update, parameters) {
                                 {
                                     name: 'Subscriptions',
                                     value: 'subscriptions'
+                                },
+                                {
+                                    name: 'Abos',
+                                    value: 'abos'
+                                },
+                                {
+                                    name: 'Feed',
+                                    value: 'feed'
                                 },
                                 {
                                     name: 'Library',
