@@ -1,4 +1,4 @@
-name: Build & Publish to npm (auto-detect service entry)
+name: Build & Publish to npm (install mods deps + polyfills)
 
 on:
   push:
@@ -21,100 +21,98 @@ jobs:
           node-version: 20
           registry-url: 'https://registry.npmjs.org/'
 
-      - name: Install project deps & bundlers + runtime packages
+      - name: Show repo top-level files for debugging
+        run: |
+          echo "=== root files ==="
+          ls -la
+
+      - name: Install dependencies for mods (if present)
         run: |
           set -euo pipefail
-          # install declared deps (if any)
-          npm install || true
+          if [ -f mods/package.json ]; then
+            echo "Installing mods deps using mods/package-lock.json (if present)..."
+            # Prefer npm ci in mods (fast, reproducible). Falls back to npm install if no lockfile.
+            if [ -f mods/package-lock.json ]; then
+              npm ci --prefix mods
+            else
+              npm install --prefix mods
+            fi
+            echo "mods/node_modules installed"
+            ls -la mods/node_modules | sed -n '1,200p' || true
+          else
+            echo "No mods/package.json found — skipping."
+          fi
 
-          # bundlers & packagers
+      - name: Install dependencies for service (if present)
+        run: |
+          set -euo pipefail
+          if [ -f service/package.json ]; then
+            echo "Installing service deps using service/package-lock.json (if present)..."
+            if [ -f service/package-lock.json ]; then
+              npm ci --prefix service
+            else
+              npm install --prefix service
+            fi
+            echo "service/node_modules installed"
+            ls -la service/node_modules | sed -n '1,200p' || true
+          else
+            echo "No service/package.json found — skipping."
+          fi
+
+      - name: Install bundlers/tools (esbuild + ncc) at repo root
+        run: |
+          set -euo pipefail
+          # Install tooling locally in runner (no-save so package.json not changed)
           npm install --no-save esbuild @vercel/ncc
 
-          # runtime packages that esbuild may need (add more if errors show)
-          npm install --no-save whatwg-fetch core-js-bundle qrcode-npm esprima estraverse || true
-
-      - name: Dump mods/ and service/ file tree (for debugging)
+      - name: Dump mods/ file list and show userScript head (debug)
         run: |
-          echo "=== repo root ==="
-          ls -la
-          echo "=== mods/ ==="
+          echo "=== mods/ files ==="
           ls -la mods || true
-          echo "=== service/ ==="
-          ls -la service || true
-          echo "=== show first lines of mods/userScript.js (if exists) ==="
-          if [ -f mods/userScript.js ]; then head -n 20 mods/userScript.js; else echo "mods/userScript.js not found"; fi
-
-      - name: Detect service entry (index.js / main.js / service.js / fallback)
-        id: detect
-        run: |
-          set -euo pipefail
-          ENTRY=""
-          for cand in index.js main.js service.js app.js server.js start.js; do
-            if [ -f "service/$cand" ]; then
-              ENTRY="service/$cand"
-              break
-            fi
-          done
-          # fallback: first .js in service root
-          if [ -z "$ENTRY" ] && [ -d service ]; then
-            FIRST_JS=$(find service -maxdepth 1 -type f -name '*.js' | head -n1 || true)
-            if [ -n "$FIRST_JS" ]; then
-              ENTRY="$FIRST_JS"
-            fi
-          fi
-          if [ -z "$ENTRY" ]; then
-            echo "::error::No service entry found in service/ (tried index.js main.js service.js etc)."
-            echo "No service entry detected" > /tmp/service_entry_missing
+          echo "=== first lines of mods/userScript.js ==="
+          if [ -f mods/userScript.js ]; then
+            sed -n '1,120p' mods/userScript.js || true
+          else
+            echo "mods/userScript.js missing"
             exit 1
           fi
-          echo "service entry detected: $ENTRY"
-          echo "::set-output name=service_entry::$ENTRY"
-      - name: Show detected service entry
-        run: |
-          echo "service entry: ${{ steps.detect.outputs.service_entry }}"
 
-      - name: Install bundler deps (if more missing you will see errors — add them to the list above)
-        run: |
-          set -euo pipefail
-          # ensure esbuild & ncc exist as CLI tools
-          npm install --no-save esbuild @vercel/ncc
-
-      - name: Fetch polyfills & prepare tmp entry (rewrite imports)
+      - name: Fetch polyfills & prepare tmp entry (strip poly imports & rewrite relative imports)
         run: |
           set -euo pipefail
           mkdir -p tmp dist
 
-          # download polyfills (ignore missing)
+          # Fetch polyfills from unpkg (adjust pinned versions if you prefer)
           curl -fsSL https://unpkg.com/whatwg-fetch/dist/fetch.umd.js -o tmp/whatwg-fetch.umd.js || true
           curl -fsSL https://unpkg.com/core-js-bundle@3.32.2/minified.js -o tmp/core-js-bundle.min.js || true
+
+          # formatjs iife bundles often are not exported via package exports; try CDN fallback
           curl -fsSL https://unpkg.com/@formatjs/intl-getcanonicallocales@latest/polyfill.iife.js -o tmp/intl-getcanonicallocales.polyfill.iife.js || true
           curl -fsSL https://unpkg.com/@formatjs/intl-locale@latest/polyfill.iife.js -o tmp/intl-locale.polyfill.iife.js || true
           curl -fsSL https://unpkg.com/@formatjs/intl-displaynames@latest/polyfill.iife.js -o tmp/intl-displaynames.polyfill.iife.js || true
           curl -fsSL https://unpkg.com/@formatjs/intl-displaynames@latest/locale-data/en.js -o tmp/intl-displaynames.locale-data.en.js || true
 
-          # concat polyfills if present
+          # Concatenate what we downloaded (safe even if parts are missing)
           cat tmp/whatwg-fetch.umd.js tmp/core-js-bundle.min.js tmp/intl-getcanonicallocales.polyfill.iife.js tmp/intl-locale.polyfill.iife.js tmp/intl-displaynames.polyfill.iife.js tmp/intl-displaynames.locale-data.en.js > tmp/polyfills.js || true
-          echo "polyfills size:"
+          echo "Polyfills length bytes:"
           wc -c tmp/polyfills.js || true
 
-          # create tmp entry: remove import lines for polyfills, rewrite "./..." -> "../mods/..."
-          if [ ! -f mods/userScript.js ]; then
-            echo "::error::mods/userScript.js not found; update workflow entry or repo layout."
-            exit 1
-          fi
-
+          # Create temporary entry:
+          # 1) remove imports that reference the polyfills we fetched above (case-insensitive)
+          # 2) rewrite relative imports "./..." to "../mods/..." so esbuild resolves modules from mods/
           sed -E '/import .*whatwg-fetch|import .*core-js|import .*@formatjs\/intl-getcanonicallocales|import .*@formatjs\/intl-locale|import .*@formatjs\/intl-displaynames|@formatjs\/intl-displaynames\/locale-data/Id' mods/userScript.js > tmp/userScript.entry.step1.js
 
+          # Convert import "./path/..." to import "../mods/path/..." to keep original import graph but resolvable from tmp/
           sed -E "s|import[[:space:]]+\"\\./([^\"]+)\"|import \"../mods/\\1\"|g; s|import[[:space:]]+'\\./([^']+)'|import '../mods/\\1'|g" tmp/userScript.entry.step1.js > tmp/userScript.entry.js
 
           echo "tmp/userScript.entry.js head:"
-          head -n 40 tmp/userScript.entry.js || true
+          sed -n '1,120p' tmp/userScript.entry.js || true
 
-      - name: Bundle userScript (esbuild) and create dist/userScript.js
+      - name: Bundle userScript (esbuild) and produce dist/userScript.js
         run: |
           set -euo pipefail
           mkdir -p tmp dist
-
+          # bundle using esbuild
           npx esbuild tmp/userScript.entry.js \
             --bundle \
             --platform=browser \
@@ -124,47 +122,75 @@ jobs:
             --banner:js="(function(){if(window.__TIZENTUBE_INJECT_LOADED)return;window.__TIZENTUBE_INJECT_LOADED=true;" \
             --footer:js="})();"
 
+          # prepend polyfills if present
           if [ -s tmp/polyfills.js ]; then
             cat tmp/polyfills.js tmp/bundle.userScript.js > dist/userScript.js
           else
             cp tmp/bundle.userScript.js dist/userScript.js
           fi
 
-          echo "Built dist/userScript.js:"
+          echo "Built dist/userScript.js (size):"
           ls -lh dist/userScript.js || true
-          head -n 6 dist/userScript.js || true
+          head -n 8 dist/userScript.js || true
 
-      - name: Bundle service using detected entry
+      - name: Auto-detect service entry and bundle with ncc
+        id: detect_service
         run: |
           set -euo pipefail
-          SERVICE_ENTRY="${{ steps.detect.outputs.service_entry }}"
-          echo "Service entry is: $SERVICE_ENTRY"
-
-          if [ -z "$SERVICE_ENTRY" ] || [ ! -f "$SERVICE_ENTRY" ]; then
-            echo "::error::Service entry not found: $SERVICE_ENTRY"
-            echo "Service entry not found" >&2
-            exit 1
+          # Find a service entry candidate
+          ENTRY=""
+          if [ -d service ]; then
+            for cand in index.js main.js service.js app.js server.js start.js; do
+              if [ -f "service/$cand" ]; then
+                ENTRY="service/$cand"
+                break
+              fi
+            done
+            if [ -z "$ENTRY" ]; then
+              # fallback: first .js file found in service/
+              ENTRY=$(find service -maxdepth 1 -type f -name '*.js' | head -n1 || true)
+            fi
           fi
+          if [ -z "$ENTRY" ]; then
+            echo "No service entry detected; skipping service bundle"
+            echo "::set-output name=service_entry::"
+            exit 0
+          fi
+          echo "Detected service entry: $ENTRY"
+          echo "::set-output name=service_entry::$ENTRY"
 
+      - name: Bundle service if detected
+        run: |
+          set -euo pipefail
+          SERVICE_ENTRY="${{ steps.detect_service.outputs.service_entry }}"
+          if [ -z "$SERVICE_ENTRY" ]; then
+            echo "No service entry - skipping bundle"
+            exit 0
+          fi
+          echo "Bundling service from $SERVICE_ENTRY"
           npx @vercel/ncc build "$SERVICE_ENTRY" -o dist_tmp
           mv dist_tmp/index.js dist/service.js
           rm -rf dist_tmp
-
-          echo "Built dist/service.js:"
+          echo "Built dist/service.js (size):"
           ls -lh dist/service.js || true
-          head -n 6 dist/service.js || true
+          head -n 8 dist/service.js || true
 
       - name: Verify dist outputs
         run: |
           set -euo pipefail
           if [ ! -f dist/userScript.js ]; then echo "dist/userScript.js missing" >&2; exit 1; fi
-          if [ ! -f dist/service.js ]; then echo "dist/service.js missing" >&2; exit 1; fi
-          echo "✅ dist contains userScript.js and service.js"
+          # service may be optional for some forks; only fail if service/package.json existed
+          if [ -f service/package.json ] && [ ! -f dist/service.js ]; then
+            echo "dist/service.js missing although service/package.json present" >&2
+            exit 1
+          fi
+          echo "✅ dist ready"
 
-      - name: Show dist sizes
-        run: ls -lh dist || true
+      - name: Show dist contents
+        run: ls -la dist || true
 
       - name: Publish to npm
+        if: github.ref == 'refs/heads/main'
         run: npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
