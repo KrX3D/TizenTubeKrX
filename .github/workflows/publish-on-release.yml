@@ -1,4 +1,4 @@
-name: Build & Publish to npm (polyfills-prepend strategy)
+name: Build & Publish to npm (with polyfills)
 
 on:
   push:
@@ -12,7 +12,7 @@ jobs:
       NODE_OPTIONS: --max_old_space_size=4096
 
     steps:
-      - name: Checkout code
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Setup Node.js
@@ -21,39 +21,50 @@ jobs:
           node-version: 20
           registry-url: 'https://registry.npmjs.org/'
 
-      - name: Install tooling
+      - name: Install project deps & bundlers
         run: |
+          set -euo pipefail
+          # install any deps declared in package.json (if present)
+          npm install || true
+          # install bundlers locally (no-save keeps package.json unchanged)
           npm install --no-save esbuild @vercel/ncc
 
-      - name: Fetch polyfills from CDN & prepare entry (adjust URLs if necessary)
+      - name: Fetch polyfills from CDN & prepare tmp entry (fix relative imports)
         run: |
+          set -euo pipefail
           mkdir -p tmp dist
 
-          # 1) Download UMD/IIFE browser bundles (unpkg). Adjust versions/paths if needed.
-          # - whatwg-fetch (UMD)
-          curl -sL https://unpkg.com/whatwg-fetch/dist/fetch.umd.js -o tmp/whatwg-fetch.umd.js
+          # Download common polyfills - adjust versions/URLs if needed
+          # Using unpkg CDN; if a file doesn't exist, ignore but keep going.
+          curl -fsSL https://unpkg.com/whatwg-fetch/dist/fetch.umd.js -o tmp/whatwg-fetch.umd.js || true
+          curl -fsSL https://unpkg.com/core-js-bundle@3.32.2/minified.js -o tmp/core-js-bundle.min.js || true
+          curl -fsSL https://unpkg.com/@formatjs/intl-getcanonicallocales@latest/polyfill.iife.js -o tmp/intl-getcanonicallocales.polyfill.iife.js || true
+          curl -fsSL https://unpkg.com/@formatjs/intl-locale@latest/polyfill.iife.js -o tmp/intl-locale.polyfill.iife.js || true
+          curl -fsSL https://unpkg.com/@formatjs/intl-displaynames@latest/polyfill.iife.js -o tmp/intl-displaynames.polyfill.iife.js || true
+          curl -fsSL https://unpkg.com/@formatjs/intl-displaynames@latest/locale-data/en.js -o tmp/intl-displaynames.locale-data.en.js || true
 
-          # - core-js bundle (full bundle - may be large but covers proposals)
-          curl -sL https://unpkg.com/core-js-bundle@3.32.2/minified.js -o tmp/core-js-bundle.min.js
-
-          # - formatjs polyfills (use polyfill UMD/IIFE builds if they exist on unpkg)
-          curl -sL https://unpkg.com/@formatjs/intl-getcanonicallocales@latest/polyfill.iife.js -o tmp/intl-getcanonicallocales.polyfill.iife.js || true
-          curl -sL https://unpkg.com/@formatjs/intl-locale@latest/polyfill.iife.js -o tmp/intl-locale.polyfill.iife.js || true
-          curl -sL https://unpkg.com/@formatjs/intl-displaynames@latest/polyfill.iife.js -o tmp/intl-displaynames.polyfill.iife.js || true
-          curl -sL https://unpkg.com/@formatjs/intl-displaynames@latest/locale-data/en.js -o tmp/intl-displaynames.locale-data.en.js || true
-
-          # 2) Concatenate whatever polyfills we successfully downloaded (silently ignore missing)
+          # Concatenate downloaded polyfills (if any)
           cat tmp/whatwg-fetch.umd.js tmp/core-js-bundle.min.js tmp/intl-getcanonicallocales.polyfill.iife.js tmp/intl-locale.polyfill.iife.js tmp/intl-displaynames.polyfill.iife.js tmp/intl-displaynames.locale-data.en.js > tmp/polyfills.js || true
+          echo "Polyfills size (bytes):"
           wc -c tmp/polyfills.js || true
 
-          # 3) Create a temporary entry that removes imports for the above polyfills
-          #    This strips lines that import these exact modules (adjust patterns if imports differ)
-          sed -E '/import .*whatwg-fetch|import .*core-js|import .*@formatjs\/intl-getcanonicallocales|import .*@formatjs\/intl-locale|import .*@formatjs\/intl-displaynames|@formatjs\/intl-displaynames\/locale-data/Id' mods/userScript.js > tmp/userScript.entry.js
-          head -n 5 tmp/userScript.entry.js
+          # Create temporary entry:
+          # 1) Remove import lines referencing the polyfills we fetched above (case-insensitive)
+          # 2) Rewrite relative imports starting with "./" to "../mods/" so esbuild resolves them
+          sed -E '/import .*whatwg-fetch|import .*core-js|import .*@formatjs\/intl-getcanonicallocales|import .*@formatjs\/intl-locale|import .*@formatjs\/intl-displaynames|@formatjs\/intl-displaynames\/locale-data/Id' mods/userScript.js > tmp/userScript.entry.step1.js
+
+          # Convert import "./path/..." to import "../mods/path/..." (handles single/double quotes)
+          sed -E "s|import[[:space:]]+\"\\./([^\"]+)\"|import \"../mods/\\1\"|g; s|import[[:space:]]+'\\./([^']+)'|import '../mods/\\1'|g" tmp/userScript.entry.step1.js > tmp/userScript.entry.js
+
+          echo "------- tmp/userScript.entry.js head -------"
+          head -n 40 tmp/userScript.entry.js || true
 
       - name: Bundle userScript (esbuild) and prepare final injected file
         run: |
-          # bundle the modified entry
+          set -euo pipefail
+          mkdir -p tmp dist
+
+          # Bundle the modified entry into a single IIFE
           npx esbuild tmp/userScript.entry.js \
             --bundle \
             --platform=browser \
@@ -63,30 +74,42 @@ jobs:
             --banner:js="(function(){if(window.__TIZENTUBE_INJECT_LOADED)return;window.__TIZENTUBE_INJECT_LOADED=true;" \
             --footer:js="})();"
 
-          # final dist file = polyfills (if any) + bundled code
-          mkdir -p dist
-          # if polyfills exist (non-empty), prepend them
+          # Prepend polyfills if any were downloaded
           if [ -s tmp/polyfills.js ]; then
             cat tmp/polyfills.js tmp/bundle.userScript.js > dist/userScript.js
           else
             cp tmp/bundle.userScript.js dist/userScript.js
           fi
-          echo "Final userScript size:"
-          ls -lh dist/userScript.js
-          head -n 5 dist/userScript.js || true
+
+          echo "userScript built:"
+          ls -lh dist/userScript.js || true
+          echo "head of dist/userScript.js:"
+          head -n 8 dist/userScript.js || true
 
       - name: Bundle service with ncc
         run: |
+          set -euo pipefail
+          # Adjust service entry if different in your repo
+          if [ ! -f service/index.js ]; then
+            echo "service/index.js not found - please adjust workflow to the correct service entry" >&2
+            exit 1
+          fi
           npx @vercel/ncc build service/index.js -o dist_tmp
           mv dist_tmp/index.js dist/service.js
           rm -rf dist_tmp
+          echo "service built:"
           ls -lh dist/service.js || true
+          head -n 8 dist/service.js || true
 
       - name: Verify dist outputs
         run: |
+          set -euo pipefail
           if [ ! -f dist/userScript.js ]; then echo "dist/userScript.js missing" >&2; exit 1; fi
           if [ ! -f dist/service.js ]; then echo "dist/service.js missing" >&2; exit 1; fi
-          echo "OK: dist contains userScript.js and service.js"
+          echo "✅ dist contains userScript.js and service.js"
+
+      - name: Show dist sizes
+        run: ls -lh dist || true
 
       - name: Publish to npm
         run: npm publish --access public
