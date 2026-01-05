@@ -1,4 +1,4 @@
-name: Build & Publish to npm (use mods/rollup + ncc for service)
+name: Build & Publish (mods + service)
 
 on:
   push:
@@ -12,8 +12,6 @@ permissions:
 jobs:
   build-and-publish:
     runs-on: ubuntu-latest
-    env:
-      NODE_OPTIONS: --max_old_space_size=4096
 
     steps:
       - name: Checkout repository
@@ -25,134 +23,121 @@ jobs:
           node-version: 20
           registry-url: 'https://registry.npmjs.org/'
 
-      - name: Show repo layout (debug)
+      - name: Show repository structure
         run: |
           echo "=== ROOT ==="
           ls -la
-          echo "=== mods/ ==="
-          ls -la mods || true
-          echo "=== service/ ==="
-          ls -la service || true
+          echo "=== mods ==="
+          [ -d mods ] && ls -la mods || echo "mods/ not present"
+          echo "=== service ==="
+          [ -d service ] && ls -la service || echo "service/ not present"
 
-      - name: Install mods dependencies (prefer lockfile)
-        if: ${{ exists('mods/package.json') }}
+      # -----------------------------
+      # Build MODS (Rollup – upstream)
+      # -----------------------------
+      - name: Install mods dependencies
         run: |
           set -euo pipefail
-          echo "Installing npm deps for mods/"
-          if [ -f mods/package-lock.json ]; then
-            npm ci --prefix mods
+          if [ -f mods/package.json ]; then
+            echo "Installing mods dependencies"
+            if [ -f mods/package-lock.json ]; then
+              npm ci --prefix mods
+            else
+              npm install --prefix mods
+            fi
           else
-            npm install --prefix mods
+            echo "No mods/package.json, skipping mods install"
           fi
-          echo "mods/node_modules top:"
-          ls -la mods/node_modules | sed -n '1,200p' || true
 
       - name: Build mods (rollup)
-        if: ${{ exists('mods/package.json') }}
         run: |
           set -euo pipefail
-          echo "Running mods build (rollup)"
-          # Use npm run build in mods (which uses rollup -c rollup.config.js)
-          npm run build --prefix mods
-          echo "After mods build, dist files (top-level dist/):"
-          ls -la dist || true
-          echo "Show first lines of dist/userScript.js if created"
-          if [ -f dist/userScript.js ]; then head -n 12 dist/userScript.js || true; else echo "dist/userScript.js missing"; fi
-
-      - name: Install service dependencies (if present)
-        if: ${{ exists('service/package.json') }}
-        run: |
-          set -euo pipefail
-          echo "Installing npm deps for service/"
-          if [ -f service/package-lock.json ]; then
-            npm ci --prefix service
+          if [ -f mods/package.json ]; then
+            echo "Running mods build"
+            npm run build --prefix mods
           else
-            npm install --prefix service
-          fi
-          echo "service/node_modules top:"
-          ls -la service/node_modules | sed -n '1,200p' || true
-
-      - name: Detect service entry (from service/package.json main or fallback)
-        id: detect_service
-        run: |
-          set -euo pipefail
-          SERVICE_ENTRY=""
-          if [ -f service/package.json ]; then
-            # get the main field from service/package.json
-            MAIN=$(node -e "console.log(require('./service/package.json').main || '')" 2>/dev/null || echo "")
-            if [ -n "$MAIN" ]; then
-              # If MAIN is a simple filename, prefix with service/
-              case "$MAIN" in
-                /*) SERVICE_ENTRY="$MAIN" ;;     # absolute path (unlikely)
-                */*) SERVICE_ENTRY="$MAIN" ;;    # already contains path
-                *) SERVICE_ENTRY="service/$MAIN" ;;
-              esac
-            fi
+            echo "Skipping mods build"
           fi
 
-          # If not found, look for common candidates
-          if [ -z "$SERVICE_ENTRY" ] && [ -d service ]; then
-            for cand in service.js index.js main.js app.js server.js start.js; do
-              if [ -f "service/$cand" ]; then
-                SERVICE_ENTRY="service/$cand"
-                break
-              fi
-            done
-            # fallback: first .js in service root
-            if [ -z "$SERVICE_ENTRY" ]; then
-              FIRST_JS=$(find service -maxdepth 1 -type f -name '*.js' | head -n 1 || true)
-              if [ -n "$FIRST_JS" ]; then SERVICE_ENTRY="$FIRST_JS"; fi
-            fi
-          fi
-
-          # write result to GITHUB_OUTPUT
-          if [ -n "$SERVICE_ENTRY" ]; then
-            echo "service_entry=$SERVICE_ENTRY" >> "$GITHUB_OUTPUT"
-            echo "Detected service entry: $SERVICE_ENTRY"
-          else
-            echo "service_entry=" >> "$GITHUB_OUTPUT"
-            echo "No service entry detected; service will be skipped."
-          fi
-
-      - name: Bundle service with ncc (if detected)
-        if: ${{ steps.detect_service.outputs.service_entry != '' }}
-        run: |
-          set -euo pipefail
-          ENTRY="${{ steps.detect_service.outputs.service_entry }}"
-          echo "Bundling service from entry: $ENTRY"
-          # Ensure dist dir exists
-          mkdir -p dist
-          npx @vercel/ncc build "$ENTRY" -o dist_tmp
-          mv dist_tmp/index.js dist/service.js
-          rm -rf dist_tmp
-          echo "Built dist/service.js:"
-          ls -lh dist/service.js || true
-          head -n 10 dist/service.js || true
-
-      - name: Verify dist/userScript.js exists (required)
+      - name: Verify dist/userScript.js
         run: |
           set -euo pipefail
           if [ ! -f dist/userScript.js ]; then
-            echo "::error::dist/userScript.js missing. Ensure mods build step produced it (mods/rollup.config.js should output ../dist/userScript.js)."
+            echo "::error::dist/userScript.js not generated"
             exit 1
           fi
-          echo "dist/userScript.js present (size):"
+          echo "dist/userScript.js:"
           ls -lh dist/userScript.js
 
-      - name: Verify dist/service.js (informational)
+      # -----------------------------
+      # Build SERVICE (ncc bundle)
+      # -----------------------------
+      - name: Install service dependencies
         run: |
-          if [ -f dist/service.js ]; then
-            echo "dist/service.js present (size):"
-            ls -lh dist/service.js
+          set -euo pipefail
+          if [ -f service/package.json ]; then
+            echo "Installing service dependencies"
+            if [ -f service/package-lock.json ]; then
+              npm ci --prefix service
+            else
+              npm install --prefix service
+            fi
           else
-            echo "No dist/service.js produced (service may be optional)."
+            echo "No service/package.json, skipping service install"
           fi
 
-      - name: Publish to npm (only from main)
-        if: github.ref == 'refs/heads/main'
+      - name: Detect service entry
+        id: service_entry
+        run: |
+          set -euo pipefail
+
+          ENTRY=""
+
+          if [ -f service/package.json ]; then
+            MAIN=$(node -e "console.log(require('./service/package.json').main || '')")
+            if [ -n "$MAIN" ]; then
+              if [[ "$MAIN" == */* ]]; then
+                ENTRY="$MAIN"
+              else
+                ENTRY="service/$MAIN"
+              fi
+            fi
+          fi
+
+          if [ -z "$ENTRY" ]; then
+            for f in service.js index.js app.js server.js; do
+              if [ -f "service/$f" ]; then
+                ENTRY="service/$f"
+                break
+              fi
+            done
+          fi
+
+          if [ -n "$ENTRY" ]; then
+            echo "entry=$ENTRY" >> "$GITHUB_OUTPUT"
+            echo "Service entry: $ENTRY"
+          else
+            echo "entry=" >> "$GITHUB_OUTPUT"
+            echo "No service entry found"
+          fi
+
+      - name: Bundle service with ncc
+        if: steps.service_entry.outputs.entry != ''
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          npx @vercel/ncc build "${{ steps.service_entry.outputs.entry }}" -o dist_tmp
+          mv dist_tmp/index.js dist/service.js
+          rm -rf dist_tmp
+          echo "dist/service.js:"
+          ls -lh dist/service.js
+
+      # -----------------------------
+      # Publish to npm
+      # -----------------------------
+      - name: Publish to npm
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           set -euo pipefail
-          echo "Publishing package to npm..."
           npm publish --access public
