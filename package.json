@@ -1,7 +1,7 @@
 {
-  "name": "@krx/tizentube",
+  "name": "@krx/tizentubekrx",
   "appName": "TizenTubeKrX",
-  "version": "1.12.8",
+  "version": "1.15.0",
   "description": "TizenTube is an ad-free and sponsor-free solution for your favourite streaming website on your Tizen (Samsung) TVs.",
   "packageType": "mods",
   "websiteURL": "https://youtube.com/tv?additionalDataUrl=http%3A%2F%2Flocalhost%3A8085%2Fdial%2Fapps%2FYouTube",
@@ -19,7 +19,7 @@
     "MediaTrackPrevious"
   ],
   "repository": {
-    "url": "https://github.com/KrX3D/TizenTube"
+    "url": "https://github.com/KrX3D/TizenTubeKrX"
   },
   "license": "GPL-3.0-only"
 }
