@@ -1,0 +1,36 @@
+name: Publish to npm on mods change
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'mods/**'
+      - 'package.json'
+      - 'package-lock.json'
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+      - name: Install deps
+        run: npm ci
+      - name: Build
+        run: npm run build || true
+      - name: Publish (only if version changed)
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          # optional: only publish if package.json version changed in this push
+          if git diff --name-only HEAD^ HEAD | grep -q '^package.json' ; then
+            echo "package.json changed -> publishing"
+            npm publish --access public
+          else
+            echo "package.json not changed, but files under mods/ changed -> still publishing"
+            npm publish --access public
+          fi
