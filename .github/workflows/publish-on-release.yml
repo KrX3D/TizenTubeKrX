@@ -68,7 +68,7 @@ on:
     branches:
       - main
     paths-ignore:
-      - '.github/**'
+      - '.github/**'     # ignore any changes inside .github (workflow edits won't trigger this workflow)
       #- 'docs/**'
       #- 'README.md'
   release:
@@ -78,163 +78,10 @@ jobs:
   build-and-publish:
     runs-on: ubuntu-latest
 
-    # -------------------------
-    # Edit these variables to exclude files/folders from triggering builds on push.
-    # Leave them empty if you don't want to ignore anything.
-    #
-    # EXCLUDE_FILES: newline-separated file globs or exact filenames (e.g. README.md, .github/workflows/**)
-    # EXCLUDE_FOLDERS: newline-separated folder globs (e.g. docs/**, translations/**)
-    # Note: patterns use bash glob matching (e.g. docs/** matches docs/a.txt or docs/sub/x.txt)
-    # -------------------------
-    env:
-      EXCLUDE_FILES: |
-        # Examples – edit or remove these lines
-        README.md
-        .github/FUNDING.yml
-
-      EXCLUDE_FOLDERS: |
-        # Examples – edit or remove these lines
-        docs/**
-        translations/**
-        .github/**
-
-      # npm token (must be set in repo secrets)
-      # NPM_TOKEN: ${{ secrets.NPM_TOKEN }}   # don't set here; provided in publish step
-
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      # -------------------------
-      # Early exit on push-only when only excluded files/folders changed
-      # (skip for release events)
-      # -------------------------
-      - name: Skip build if only excluded files changed
-        if: github.event_name == 'push'
-        id: skip_check
-        run: |
-          set -euo pipefail
-          echo "Running robust skip-check (push event)."
-
-          # load exclude lists
-          readarray -t EX_FILES < <(printf '%s\n' "$EXCLUDE_FILES" | sed '/^\s*#/d;/^\s*$/d')
-          readarray -t EX_FOLDERS < <(printf '%s\n' "$EXCLUDE_FOLDERS" | sed '/^\s*#/d;/^\s*$/d')
-
-          echo "Excluded files patterns:"
-          for p in "${EX_FILES[@]}"; do echo "  - $p"; done
-          echo "Excluded folders patterns:"
-          for p in "${EX_FOLDERS[@]}"; do echo "  - $p"; done
-
-          BEFORE="${{ github.event.before }}"
-          AFTER="${{ github.sha }}"
-
-          echo "BEFORE=$BEFORE"
-          echo "AFTER=$AFTER"
-
-          # If BEFORE is all zeros or empty, we don't have a range; fallback to single-commit strategy
-          if [[ -z "$BEFORE" || "$BEFORE" =~ ^0+$ ]]; then
-            echo "Payload BEFORE empty/zeros - falling back to single-commit detection"
-            # try to get changed files from the latest commit
-            CHANGED="$(git show --name-only --pretty=format: "$AFTER" 2>/dev/null || true)"
-          else
-            # Make sure BEFORE exists locally. If not, try to fetch it
-            if ! git rev-parse --verify "$BEFORE" >/dev/null 2>&1; then
-              echo "Before commit $BEFORE not present locally. Attempting to fetch it from origin..."
-              # try to fetch the specific commit
-              if git fetch origin "$BEFORE" --depth=1 2>/dev/null; then
-                echo "Fetched specific commit $BEFORE"
-              else
-                echo "Fetch of $BEFORE failed; fetching origin/main with small depth as fallback..."
-                git fetch origin main --depth=2 || true
-              fi
-            fi
-
-            # Now try diff between BEFORE and AFTER
-            if CHANGED="$(git diff --name-only "$BEFORE" "$AFTER" 2>/dev/null)"; then
-              :
-            else
-              echo "git diff failed; attempting fallback methods..."
-              # fallback: list files in the AFTER commit (single commit)
-              CHANGED="$(git show --name-only --pretty=format: "$AFTER" 2>/dev/null || true)"
-              # final fallback: try HEAD^..HEAD
-              if [ -z "$CHANGED" ]; then
-                CHANGED="$(git diff --name-only HEAD^ HEAD 2>/dev/null || true)"
-              fi
-            fi
-          fi
-
-          CHANGED="$(printf '%s\n' "$CHANGED" | sed '/^\s*$/d')"
-
-          if [ -z "$CHANGED" ]; then
-            echo "No changed files detected (empty). Will NOT skip build."
-            echo "skip=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          echo "Changed files:"
-          printf '%s\n' "$CHANGED"
-
-          # Combine patterns
-          PATTERNS=()
-          for p in "${EX_FILES[@]}"; do PATTERNS+=("$p"); done
-          for p in "${EX_FOLDERS[@]}"; do PATTERNS+=("$p"); done
-
-          # If no patterns configured → do not skip
-          if [ ${#PATTERNS[@]} -eq 0 ]; then
-            echo "No exclude patterns configured; will not skip."
-            echo "skip=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          # Helper to check bash-glob match
-          matches_any() {
-            local file="$1"
-            shift
-            local patterns=("$@")
-            for pat in "${patterns[@]}"; do
-              if [[ "$file" == $pat ]]; then
-                return 0
-              fi
-            done
-            return 1
-          }
-
-          ALL_MATCH=true
-          while IFS= read -r f; do
-            if [ -z "$f" ]; then continue; fi
-            if matches_any "$f" "${PATTERNS[@]}"; then
-              echo "Excluded change: $f"
-            else
-              echo "Relevant change detected: $f"
-              ALL_MATCH=false
-              break
-            fi
-          done <<< "$CHANGED"
-
-          if [ "$ALL_MATCH" = true ]; then
-            echo "All changed files match exclude patterns — skipping build."
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          else
-            echo "At least one relevant file changed — proceeding with build."
-            echo "skip=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-      - name: Check skip result and stop if skipped
-        if: github.event_name == 'push'
-        run: |
-          set -euo pipefail
-          SKIP="${{ steps.skip_check.outputs.skip }}"
-          if [ "$SKIP" = "true" ]; then
-            echo "Workflow skipped due to only excluded files changed."
-            exit 0
-          fi
-          echo "Not skipping; continuing build."
-
-      # -------------------------
-      # Build steps (same as before)
-      # -------------------------
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -277,17 +124,14 @@ jobs:
       - name: Verify dist output
         run: |
           set -euo pipefail
-          ls -lh dist || true
+          ls -lh dist
           test -f dist/userScript.js
           test -f dist/service.js
 
-      # -------------------------
-      # Publish (only on release events)
-      # -------------------------
-      - name: Publish to npm (release only)
-        #if: github.event_name == 'release'
+      # ----------------------------
+      # Publish to npm
+      # ----------------------------
+      - name: Publish package
+        run: npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: |
-          set -euo pipefail
-          npm publish --access public
