@@ -110,9 +110,9 @@ jobs:
         id: skip_check
         run: |
           set -euo pipefail
-          echo "Running skip-check (push event)."
+          echo "Running robust skip-check (push event)."
 
-          # read env lists into arrays (remove comment lines and blank lines)
+          # load exclude lists
           readarray -t EX_FILES < <(printf '%s\n' "$EXCLUDE_FILES" | sed '/^\s*#/d;/^\s*$/d')
           readarray -t EX_FOLDERS < <(printf '%s\n' "$EXCLUDE_FOLDERS" | sed '/^\s*#/d;/^\s*$/d')
 
@@ -121,25 +121,48 @@ jobs:
           echo "Excluded folders patterns:"
           for p in "${EX_FOLDERS[@]}"; do echo "  - $p"; done
 
-          # Get changed files between before and after commit
           BEFORE="${{ github.event.before }}"
           AFTER="${{ github.sha }}"
 
-          # If BEFORE is all zeros (rare cases), fall back to compare with origin/main
-          if [[ "$BEFORE" =~ ^0+$ ]]; then
-            echo "No previous commit in payload; fetching origin/main for comparison..."
-            git fetch origin main --depth=1 || true
-            # fall back to list of files in current commit only
-            CHANGED=$(git diff --name-only HEAD^ HEAD 2>/dev/null || git rev-list --max-count=1 --pretty=format: --abbrev-commit HEAD | xargs -I{} git show --name-only --pretty=format: {})
+          echo "BEFORE=$BEFORE"
+          echo "AFTER=$AFTER"
+
+          # If BEFORE is all zeros or empty, we don't have a range; fallback to single-commit strategy
+          if [[ -z "$BEFORE" || "$BEFORE" =~ ^0+$ ]]; then
+            echo "Payload BEFORE empty/zeros - falling back to single-commit detection"
+            # try to get changed files from the latest commit
+            CHANGED="$(git show --name-only --pretty=format: "$AFTER" 2>/dev/null || true)"
           else
-            CHANGED=$(git diff --name-only "$BEFORE" "$AFTER")
+            # Make sure BEFORE exists locally. If not, try to fetch it
+            if ! git rev-parse --verify "$BEFORE" >/dev/null 2>&1; then
+              echo "Before commit $BEFORE not present locally. Attempting to fetch it from origin..."
+              # try to fetch the specific commit
+              if git fetch origin "$BEFORE" --depth=1 2>/dev/null; then
+                echo "Fetched specific commit $BEFORE"
+              else
+                echo "Fetch of $BEFORE failed; fetching origin/main with small depth as fallback..."
+                git fetch origin main --depth=2 || true
+              fi
+            fi
+
+            # Now try diff between BEFORE and AFTER
+            if CHANGED="$(git diff --name-only "$BEFORE" "$AFTER" 2>/dev/null)"; then
+              :
+            else
+              echo "git diff failed; attempting fallback methods..."
+              # fallback: list files in the AFTER commit (single commit)
+              CHANGED="$(git show --name-only --pretty=format: "$AFTER" 2>/dev/null || true)"
+              # final fallback: try HEAD^..HEAD
+              if [ -z "$CHANGED" ]; then
+                CHANGED="$(git diff --name-only HEAD^ HEAD 2>/dev/null || true)"
+              fi
+            fi
           fi
 
-          # Normalize into newline list
-          CHANGED=$(printf '%s\n' "$CHANGED" | sed '/^\s*$/d')
+          CHANGED="$(printf '%s\n' "$CHANGED" | sed '/^\s*$/d')"
 
           if [ -z "$CHANGED" ]; then
-            echo "No changed files detected. Proceeding with build."
+            echo "No changed files detected (empty). Will NOT skip build."
             echo "skip=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -147,13 +170,24 @@ jobs:
           echo "Changed files:"
           printf '%s\n' "$CHANGED"
 
-          # Helper: check if a file matches any exclude pattern (bash globbing)
+          # Combine patterns
+          PATTERNS=()
+          for p in "${EX_FILES[@]}"; do PATTERNS+=("$p"); done
+          for p in "${EX_FOLDERS[@]}"; do PATTERNS+=("$p"); done
+
+          # If no patterns configured → do not skip
+          if [ ${#PATTERNS[@]} -eq 0 ]; then
+            echo "No exclude patterns configured; will not skip."
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Helper to check bash-glob match
           matches_any() {
             local file="$1"
             shift
             local patterns=("$@")
             for pat in "${patterns[@]}"; do
-              # Use bash pattern match (note: patterns are used directly)
               if [[ "$file" == $pat ]]; then
                 return 0
               fi
@@ -161,19 +195,6 @@ jobs:
             return 1
           }
 
-          # Build combined patterns array (files and folders)
-          PATTERNS=()
-          for p in "${EX_FILES[@]}"; do PATTERNS+=("$p"); done
-          for p in "${EX_FOLDERS[@]}"; do PATTERNS+=("$p"); done
-
-          # If there are no patterns, do not skip
-          if [ ${#PATTERNS[@]} -eq 0 ]; then
-            echo "No exclude patterns configured; will not skip."
-            echo "skip=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          # Check all changed files: if every changed file matches at least one pattern, skip
           ALL_MATCH=true
           while IFS= read -r f; do
             if [ -z "$f" ]; then continue; fi
