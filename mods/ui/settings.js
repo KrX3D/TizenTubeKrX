@@ -445,6 +445,10 @@ export default function modernUI(update, parameters) {
                                 {
                                     name: 'More',
                                     value: 'more'
+                                },
+                                {
+                                    name: 'Watch',
+                                    value: 'watch'
                                 }
                             ]
                         }

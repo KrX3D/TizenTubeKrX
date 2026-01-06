@@ -235,58 +235,95 @@ function processShelves(shelves, shouldAddPreviews = true) {
   
   for (let i = shelves.length - 1; i >= 0; i--) {
     const shelve = shelves[i];
-    if (!shelve || !shelve.shelfRenderer) continue;
+    if (!shelve) continue;
     
-    const shelfTitle = shelve.shelfRenderer?.shelfHeaderRenderer?.title?.simpleText || '';
-    const shelfTitleLower = shelfTitle.toLowerCase();
+    // Get shelf title for "Watch Again" detection
+    let shelfTitle = '';
+    if (shelve.shelfRenderer?.shelfHeaderRenderer?.title) {
+      const titleObj = shelve.shelfRenderer.shelfHeaderRenderer.title;
+      shelfTitle = (titleObj.simpleText || titleObj.runs?.[0]?.text || '').toLowerCase();
+    }
+    if (shelve.richShelfRenderer?.title) {
+      const titleObj = shelve.richShelfRenderer.title;
+      shelfTitle = (titleObj.simpleText || titleObj.runs?.[0]?.text || '').toLowerCase();
+    }
     
-    // Skip "Watch Again" / "Erneut ansehen" shelves - they SHOULD show watched videos
-    const isWatchAgainShelf = shelfTitleLower.includes('erneut ansehen') || 
-                               shelfTitleLower.includes('watch again') ||
-                               shelfTitleLower.includes('continue watching');
+    // Skip "Watch Again" / "Continue Watching" / "Erneut ansehen" shelves
+    const isWatchAgainShelf = shelfTitle.includes('erneut ansehen') || 
+                               shelfTitle.includes('watch again') ||
+                               shelfTitle.includes('continue watching') ||
+                               shelfTitle.includes('weiterschauen') ||
+                               shelfTitle.includes('recently watched');
     
-    // Handle horizontalListRenderer
-    if (shelve.shelfRenderer.content?.horizontalListRenderer?.items) {
-      const items = shelve.shelfRenderer.content.horizontalListRenderer.items;
-      
-      deArrowify(items);
-      hqify(items);
-      addLongPress(items);
-      if (shouldAddPreviews) addPreviews(items);
-      
-      // Only hide watched videos if NOT a "watch again" shelf
-      if (!isWatchAgainShelf) {
-        shelve.shelfRenderer.content.horizontalListRenderer.items = hideVideo(items);
-      }
-      
-      // Filter shorts
-      if (!configRead('enableShorts')) {
-        if (shelve.shelfRenderer.tvhtml5ShelfRendererType === 'TVHTML5_SHELF_RENDERER_TYPE_SHORTS') {
-          shelves.splice(i, 1);
-          continue;
+    // Handle shelfRenderer
+    if (shelve.shelfRenderer) {
+      // horizontalListRenderer
+      if (shelve.shelfRenderer.content?.horizontalListRenderer?.items) {
+        const items = shelve.shelfRenderer.content.horizontalListRenderer.items;
+        
+        deArrowify(items);
+        hqify(items);
+        addLongPress(items);
+        if (shouldAddPreviews) addPreviews(items);
+        
+        // Only hide watched if NOT a watch-again shelf
+        if (!isWatchAgainShelf) {
+          shelve.shelfRenderer.content.horizontalListRenderer.items = hideVideo(items);
         }
-        shelve.shelfRenderer.content.horizontalListRenderer.items = 
-          shelve.shelfRenderer.content.horizontalListRenderer.items.filter(
-            item => item.tileRenderer?.tvhtml5ShelfRendererType !== 'TVHTML5_TILE_RENDERER_TYPE_SHORTS'
-          );
+        
+        // Filter shorts
+        if (!configRead('enableShorts')) {
+          // Remove entire shorts shelf
+          if (shelve.shelfRenderer.tvhtml5ShelfRendererType === 'TVHTML5_SHELF_RENDERER_TYPE_SHORTS') {
+            shelves.splice(i, 1);
+            continue;
+          }
+          // Filter individual shorts from the items
+          shelve.shelfRenderer.content.horizontalListRenderer.items = 
+            shelve.shelfRenderer.content.horizontalListRenderer.items.filter(item => {
+              // Check multiple shorts indicators
+              if (item.tileRenderer?.tvhtml5ShelfRendererType === 'TVHTML5_TILE_RENDERER_TYPE_SHORTS') return false;
+              if (item.compactVideoRenderer?.badges?.find(b => b.metadataBadgeRenderer?.label === 'Shorts')) return false;
+              if (item.videoRenderer?.badges?.find(b => b.metadataBadgeRenderer?.label === 'Shorts')) return false;
+              
+              // Check if navigation endpoint is /shorts/
+              const navEndpoint = item.tileRenderer?.onSelectCommand?.watchEndpoint || 
+                                 item.compactVideoRenderer?.navigationEndpoint?.watchEndpoint ||
+                                 item.videoRenderer?.navigationEndpoint?.watchEndpoint;
+              if (navEndpoint?.videoId && item.tileRenderer?.metadata?.tileMetadataRenderer?.title?.simpleText) {
+                // Can't detect from endpoint alone reliably, rely on other indicators
+              }
+              
+              return true;
+            });
+        }
+      }
+      
+      // gridRenderer
+      if (shelve.shelfRenderer.content?.gridRenderer?.items) {
+        const items = shelve.shelfRenderer.content.gridRenderer.items;
+        
+        deArrowify(items);
+        hqify(items);
+        addLongPress(items);
+        if (shouldAddPreviews) addPreviews(items);
+        
+        if (!isWatchAgainShelf) {
+          shelve.shelfRenderer.content.gridRenderer.items = hideVideo(items);
+        }
+        
+        // Filter shorts from grid
+        if (!configRead('enableShorts')) {
+          shelve.shelfRenderer.content.gridRenderer.items = 
+            shelve.shelfRenderer.content.gridRenderer.items.filter(item => {
+              if (item.gridVideoRenderer?.badges?.find(b => b.metadataBadgeRenderer?.label === 'Shorts')) return false;
+              return true;
+            });
+        }
       }
     }
     
-    // Handle gridRenderer
-    if (shelve.shelfRenderer.content?.gridRenderer?.items) {
-      const items = shelve.shelfRenderer.content.gridRenderer.items;
-      
-      deArrowify(items);
-      hqify(items);
-      addLongPress(items);
-      if (shouldAddPreviews) addPreviews(items);
-      
-      if (!isWatchAgainShelf) {
-        shelve.shelfRenderer.content.gridRenderer.items = hideVideo(items);
-      }
-    }
-    
-    // Handle richShelfRenderer (often used in subscriptions)
+    // Handle richShelfRenderer (used heavily in subscriptions)
     if (shelve.richShelfRenderer?.content?.richGridRenderer?.contents) {
       const contents = shelve.richShelfRenderer.content.richGridRenderer.contents;
       
@@ -302,13 +339,23 @@ function processShelves(shelves, shouldAddPreviews = true) {
       // Filter shorts from richShelfRenderer
       if (!configRead('enableShorts')) {
         shelve.richShelfRenderer.content.richGridRenderer.contents = 
-          shelve.richShelfRenderer.content.richGridRenderer.contents.filter(
-            item => {
-              const renderer = item?.richItemRenderer?.content?.videoRenderer || 
-                             item?.richItemRenderer?.content?.reelItemRenderer;
-              return !renderer || renderer.tvhtml5ShelfRendererType !== 'TVHTML5_TILE_RENDERER_TYPE_SHORTS';
-            }
-          );
+          shelve.richShelfRenderer.content.richGridRenderer.contents.filter(item => {
+            const videoRenderer = item?.richItemRenderer?.content?.videoRenderer;
+            const reelRenderer = item?.richItemRenderer?.content?.reelItemRenderer;
+            
+            // If it's a reel/short renderer, filter it out
+            if (reelRenderer) return false;
+            
+            // Check for shorts badge
+            if (videoRenderer?.badges?.find(b => b.metadataBadgeRenderer?.label === 'Shorts')) return false;
+            
+            // Check for shorts overlay
+            if (videoRenderer?.thumbnailOverlays?.find(o => 
+              o.thumbnailOverlayTimeStatusRenderer?.style === 'SHORTS'
+            )) return false;
+            
+            return true;
+          });
       }
     }
   }
@@ -425,15 +472,37 @@ function hideVideo(items) {
   
   if (!Array.isArray(items)) return items;
   
-  // Helper: Find progress bar in ANY renderer type
+  // Helper: Find progress bar - based on Chrome extension approach
   function findProgressBar(item) {
     if (!item) return null;
     
-    // Check all possible renderer types
+    // Try to find progress element directly
+    const progressSelectors = [
+      '#progress',
+      '.ytThumbnailOverlayProgressBarHostWatchedProgressBarSegment',
+      '.thumbnail-overlay-resume-playback-progress',
+      'ytd-thumbnail-overlay-resume-playback-renderer #progress',
+      'ytm-thumbnail-overlay-resume-playback-renderer .thumbnail-overlay-resume-playback-progress'
+    ];
+    
+    for (const selector of progressSelectors) {
+      const progressEl = item.querySelector ? item.querySelector(selector) : null;
+      if (progressEl) {
+        // Get percentage from width style
+        const width = progressEl.style.width;
+        if (width) {
+          const percent = parseFloat(width);
+          if (!isNaN(percent)) {
+            return { percentDurationWatched: percent };
+          }
+        }
+      }
+    }
+    
+    // Fallback: Check thumbnailOverlays for resume playback renderer
     const checkRenderer = (renderer) => {
       if (!renderer) return null;
       
-      // Try multiple overlay locations
       const overlayPaths = [
         renderer.thumbnailOverlays,
         renderer.header?.tileHeaderRenderer?.thumbnailOverlays,
@@ -450,7 +519,6 @@ function hideVideo(items) {
       return null;
     };
     
-    // Try all renderer types
     const rendererTypes = [
       item.tileRenderer,
       item.playlistVideoRenderer,
@@ -484,6 +552,7 @@ function hideVideo(items) {
     if (combined.includes('gaming')) return 'gaming';
     if (combined.includes('more')) return 'more';
     if (combined === '' || combined === '/' || combined.includes('/home') || combined.includes('browse')) return 'home';
+    if (combined.includes('/watch')) return 'watch';
     
     return 'other';
   }
