@@ -89,5 +89,31 @@ jobs:
             npm unpublish "${PKG}@${VER}"
           fi
 
+      # ----------------------------
+      # Purge jsDelivr cache (release only)
+      # ----------------------------
+      - name: Wait for npm propagation
+        #if: github.event_name == 'release'
+        run: sleep 10
+        
+      - name: Purge jsDelivr cache
+        #if: github.event_name == 'release'
+        run: |
+          echo "Purging jsDelivr cache for @krx3d/tizentube..."
+          
+          # Purge latest tag
+          curl -i "https://purge.jsdelivr.net/npm/@krx3d/tizentube@latest/package.json" || true
+          
+          # Purge all versions
+          curl -i "https://purge.jsdelivr.net/npm/@krx3d/tizentube@*/package.json" || true
+          
+          # Purge default (no version)
+          curl -i "https://purge.jsdelivr.net/npm/@krx3d/tizentube/package.json" || true
+          
+          # Purge entire package (all files)
+          curl -i "https://purge.jsdelivr.net/npm/@krx3d/tizentube@*" || true
+          
+          echo "✅ jsDelivr cache purge requests sent"
+
       - name: Done
         run: echo "Unpublish finished."
