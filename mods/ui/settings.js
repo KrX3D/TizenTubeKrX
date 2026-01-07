@@ -685,6 +685,57 @@ export default function modernUI(update, parameters) {
                 }
             ]
         },
+        {
+            name: 'Developer Options',
+            icon: 'SETTINGS',
+            value: null,
+            menuHeader: {
+                title: 'Developer Options',
+                subtitle: 'Advanced debugging and logging options'
+            },
+            options: [
+                {
+                name: 'Enable Remote Logging',
+                icon: 'BROADCAST',
+                value: 'enableRemoteLogging'
+                },
+                {
+                name: 'Syslog Server URL',
+                icon: 'LINK',
+                value: null,
+                menuId: 'tt-syslog-url',
+                menuHeader: {
+                    title: 'Syslog Server URL',
+                    subtitle: 'Enter your syslog server URL (e.g., http://192.168.1.100:514)'
+                },
+                options: [
+                    // You could add preset IPs here, or just let users edit in config
+                    {
+                    name: 'Configure manually in config',
+                    key: 'syslogServerUrl',
+                    value: null
+                    }
+                ]
+                },
+                {
+                name: 'Log Level',
+                icon: 'SETTINGS',
+                value: null,
+                menuId: 'tt-log-level',
+                menuHeader: {
+                    title: 'Log Level',
+                    subtitle: 'Set minimum log level to send'
+                },
+                options: ['DEBUG', 'INFO', 'WARN', 'ERROR'].map((level) => {
+                    return {
+                    name: level,
+                    key: 'logLevel',
+                    value: level
+                    }
+                })
+                }
+            ]
+        },
         window.h5vcc && window.h5vcc.tizentube ?
             {
                 name: 'TizenTube Cobalt Updater',

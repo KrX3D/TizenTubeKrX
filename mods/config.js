@@ -49,7 +49,10 @@ const defaultConfig = {
   videoPreferredCodec: 'any',
   launchToOnStartup: null,
   disabledSidebarContents: ['TROPHY', 'NEWS', 'YOUTUBE_MUSIC', 'BROADCAST', 'CLAPPERBOARD', 'LIVE', 'GAMING', 'TAB_MORE'],
-  enableUpdater: true
+  enableUpdater: true,
+  enableRemoteLogging: false,
+  syslogServerUrl: 'http://192.168.70.124:514',
+  logLevel: 'INFO' // DEBUG, INFO, WARN, ERROR
 };
 
 let localConfig;
