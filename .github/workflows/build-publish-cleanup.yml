@@ -116,7 +116,7 @@ jobs:
           CUR_VER=$(node -e "console.log(require('./package.json').version)")
           echo "Current repo version: $CUR_VER"
           echo "CUR_VER=${CUR_VER}" > /tmp/curver.env
-
+          
       - name: Decide which versions to process (unpublish <=72h, deprecate others)
         env:
           PKG: ${{ env.PACKAGE_NAME }}
@@ -160,15 +160,36 @@ jobs:
             else toDeprecate.push(it.v);
           }
 
-          fs.writeFileSync("/tmp/to_unpublish.txt", toUnpublish.join("\\n"));
-          fs.writeFileSync("/tmp/to_deprecate.txt", toDeprecate.join("\\n"));
+          // write with real newlines (important!)
+          fs.writeFileSync("/tmp/to_unpublish.txt", toUnpublish.join("\n"));
+          fs.writeFileSync("/tmp/to_deprecate.txt", toDeprecate.join("\n"));
 
           console.log("To unpublish (<= " + windowHours + "h):", toUnpublish);
           console.log("To deprecate (> " + windowHours + "h or unknown):", toDeprecate);
           ' 
-          echo "--- Unpublish candidates ---"
+
+          echo "--- Unpublish candidates (raw, visible escapes) ---"
+          # show file with visible escapes so you can confirm real newlines
+          if [ -s /tmp/to_unpublish.txt ]; then
+            cat -v /tmp/to_unpublish.txt || true
+            echo "--- hexdump ---"
+            xxd /tmp/to_unpublish.txt || true
+          else
+            echo "(none)"
+          fi
+
+          echo "--- Deprecate candidates (raw, visible escapes) ---"
+          if [ -s /tmp/to_deprecate.txt ]; then
+            cat -v /tmp/to_deprecate.txt || true
+            echo "--- hexdump ---"
+            xxd /tmp/to_deprecate.txt || true
+          else
+            echo "(none)"
+          fi
+
+          echo "--- Unpublish candidates (plain) ---"
           if [ -s /tmp/to_unpublish.txt ]; then cat /tmp/to_unpublish.txt; else echo "(none)"; fi
-          echo "--- Deprecate candidates ---"
+          echo "--- Deprecate candidates (plain) ---"
           if [ -s /tmp/to_deprecate.txt ]; then cat /tmp/to_deprecate.txt; else echo "(none)"; fi
 
       - name: Unpublish recent versions (<=72h) and deprecate the rest (verbose + verify)
