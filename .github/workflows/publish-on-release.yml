@@ -66,16 +66,16 @@
 
 name: Build and publish on release
 
-#on:
-  #push:
+on:
+  push:
     #branches:
       #- main
     #paths-ignore:
       - '.github/**'     # ignore any changes inside .github (workflow edits won't trigger this workflow)
       #- 'docs/**'
       #- 'README.md'
-  #release:
-    #types: [published]
+  release:
+    types: [published]
 
 jobs:
   build-and-publish:

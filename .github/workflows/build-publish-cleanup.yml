@@ -2,11 +2,11 @@
 name: Build, publish (on release) and cleanup old npm versions
 
 on:
-  #push:
-    #branches:
-      #- main
-    #paths-ignore:
-      #- '.github/**'
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - '.github/**'
   release:
     types: [published]
 
@@ -95,7 +95,7 @@ jobs:
           # publish the package from repo root (ensure package.json version was bumped before creating the release)
           npm whoami
           npm publish --access public
-          
+
       - name: Wait for npm propagation
         run: sleep 10
 
