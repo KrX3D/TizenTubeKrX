@@ -64,37 +64,37 @@
 #
 # -----------------------------------------------------------------------------
 
-name: Build, publish (on release) and cleanup old npm versions
+name: Build and publish on release
 
-on:
-  push:
-    branches:
-      - main
-    paths-ignore:
-      - '.github/**'
-  release:
-    types: [published]
-
-env:
-  PACKAGE_NAME: '@krx3d/tizentube'  # edit if needed
-  NODE_VERSION: '20'
-  # unpublish window in hours (npm policy ~= 72 hours)
-  UNPUBLISH_WINDOW_HOURS: '72'
+#on:
+  #push:
+    #branches:
+      #- main
+    #paths-ignore:
+      - '.github/**'     # ignore any changes inside .github (workflow edits won't trigger this workflow)
+      #- 'docs/**'
+      #- 'README.md'
+  #release:
+    #types: [published]
 
 jobs:
-  build:
+  build-and-publish:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: ${{ env.NODE_VERSION }}
+          node-version: 20
           registry-url: https://registry.npmjs.org/
 
-      - name: Install mods deps
+      # ----------------------------
+      # Build mods (userScript.js)
+      # ----------------------------
+      - name: Install mods dependencies
         run: |
           set -euo pipefail
           cd mods
@@ -106,7 +106,10 @@ jobs:
           cd mods
           npx rollup -c
 
-      - name: Install service deps
+      # ----------------------------
+      # Build service (service.js)
+      # ----------------------------
+      - name: Install service dependencies
         run: |
           set -euo pipefail
           cd service
@@ -118,173 +121,47 @@ jobs:
           cd service
           npx rollup -c
 
+      # ----------------------------
+      # Verify output
+      # ----------------------------
       - name: Verify dist output
         run: |
           set -euo pipefail
-          ls -lh dist || true
+          ls -lh dist
           test -f dist/userScript.js
           test -f dist/service.js
 
-  publish-and-clean:
-    needs: build
-    runs-on: ubuntu-latest
-    #if: github.event_name == 'release'
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          registry-url: https://registry.npmjs.org/
-
-      - name: Configure npm auth
-        env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: |
-          set -euo pipefail
-          if [ -z "${NPM_TOKEN:-}" ]; then
-            echo "::error::NPM_TOKEN secret is not set"
-            exit 1
-          fi
-          printf "//registry.npmjs.org/:_authToken=%s\n" "$NPM_TOKEN" > ~/.npmrc
-          printf "always-auth=true\n" >> ~/.npmrc
-          echo "Wrote ~/.npmrc."
-
-      - name: Publish package to npm
+      # ----------------------------
+      # Publish to npm (release only)
+      # ----------------------------
+      - name: Publish package
+        #if: github.event_name == 'release'
+        run: npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: |
-          set -euo pipefail
-          # publish the package from repo root (ensure package.json version was bumped before creating the release)
-          npm whoami
-          npm publish --access public
 
-      - name: Gather versions & times from npm
-        env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-          PKG: ${{ env.PACKAGE_NAME }}
-        run: |
-          set -euo pipefail
-          # write npmrc so npm view works
-          printf "//registry.npmjs.org/:_authToken=%s\n" "${NPM_TOKEN}" > ~/.npmrc
-          printf "always-auth=true\n" >> ~/.npmrc
-
-          echo "Fetching versions and publish times for ${PKG} ..."
-          npm view "${PKG}" versions --json > /tmp/versions.json
-          npm view "${PKG}" time --json > /tmp/time.json
-
-          # current repo version
-          CUR_VER=$(node -e "console.log(require('./package.json').version)")
-          echo "Current repo version: $CUR_VER"
-          echo "CUR_VER=${CUR_VER}" > /tmp/curver.env
-
-      - name: Decide which versions to process (unpublish <=72h, deprecate others)
-        env:
-          PKG: ${{ env.PACKAGE_NAME }}
-          UNPUBLISH_WINDOW_HOURS: ${{ env.UNPUBLISH_WINDOW_HOURS }}
-        run: |
-          set -euo pipefail
-          # Node script: produce /tmp/to_unpublish.txt (versions <=72h, excluding current)
-          # and /tmp/to_deprecate.txt (older versions excluding current)
-          node -e '
-          const fs = require("fs");
-          const versions = JSON.parse(fs.readFileSync("/tmp/versions.json","utf8")||"[]");
-          const times = JSON.parse(fs.readFileSync("/tmp/time.json","utf8")||"{}");
-          const cur = fs.readFileSync("/tmp/curver.env","utf8").trim().split("=")[1];
-
-          const windowHours = Number(process.env.UNPUBLISH_WINDOW_HOURS || "72");
-          const now = Date.now();
-
-          // ensure array and sort by time desc (newest first)
-          const arr = Array.isArray(versions) ? versions.slice() : Object.keys(versions||{});
-          const items = arr.map(v => ({v, t: times[v] ? new Date(times[v]) : null}));
-
-          items.sort((a,b) => {
-            if (!a.t && !b.t) return 0;
-            if (!a.t) return 1;
-            if (!b.t) return -1;
-            return b.t - a.t;
-          });
-
-          // exclude current version (just in case)
-          const candidates = items.filter(i => i.v !== cur);
-
-          const toUnpublish = [], toDeprecate = [];
-          for (const it of candidates) {
-            if (!it.t) {
-              // unknown time => deprecate (safer)
-              toDeprecate.push(it.v);
-              continue;
-            }
-            const ageHours = (now - it.t.getTime()) / 36e5;
-            if (ageHours <= windowHours) toUnpublish.push(it.v);
-            else toDeprecate.push(it.v);
-          }
-
-          fs.writeFileSync("/tmp/to_unpublish.txt", toUnpublish.join("\\n"));
-          fs.writeFileSync("/tmp/to_deprecate.txt", toDeprecate.join("\\n"));
-
-          console.log("To unpublish (<= " + windowHours + "h):", toUnpublish);
-          console.log("To deprecate (> " + windowHours + "h or unknown):", toDeprecate);
-          ' 
-          echo "--- Unpublish candidates ---"
-          if [ -s /tmp/to_unpublish.txt ]; then cat /tmp/to_unpublish.txt; else echo "(none)"; fi
-          echo "--- Deprecate candidates ---"
-          if [ -s /tmp/to_deprecate.txt ]; then cat /tmp/to_deprecate.txt; else echo "(none)"; fi
-
-      - name: Unpublish recent versions (<=72h) and deprecate the rest
-        env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-          PKG: ${{ env.PACKAGE_NAME }}
-        run: |
-          set -euo pipefail
-          printf "//registry.npmjs.org/:_authToken=%s\n" "${NPM_TOKEN}" > ~/.npmrc
-          printf "always-auth=true\n" >> ~/.npmrc
-
-          # First attempt unpublish for recent versions
-          if [ -s /tmp/to_unpublish.txt ]; then
-            while IFS= read -r ver; do
-              [ -z "$ver" ] && continue
-              echo "Attempting npm unpublish ${PKG}@${ver} ..."
-              if npm unpublish "${PKG}@${ver}"; then
-                echo "Unpublished ${PKG}@${ver}"
-              else
-                echo "::warning::Unpublish failed for ${PKG}@${ver} - falling back to deprecate"
-                npm deprecate "${PKG}@${ver}" "Deprecated — please upgrade to a newer release." || echo "::warning::Deprecate also failed for ${PKG}@${ver}"
-              fi
-            done < /tmp/to_unpublish.txt
-          else
-            echo "No recent versions to unpublish."
-          fi
-
-          # Then deprecate older versions
-          if [ -s /tmp/to_deprecate.txt ]; then
-            while IFS= read -r ver; do
-              [ -z "$ver" ] && continue
-              echo "Deprecating ${PKG}@${ver} ..."
-              npm deprecate "${PKG}@${ver}" "Deprecated — please upgrade to a newer release." || echo "::warning::Deprecate failed for ${PKG}@${ver}"
-            done < /tmp/to_deprecate.txt
-          else
-            echo "No older versions to deprecate."
-          fi
-
+      # ----------------------------
+      # Purge jsDelivr cache (release only)
+      # ----------------------------
       - name: Wait for npm propagation
+        #if: github.event_name == 'release'
         run: sleep 10
-
+        
       - name: Purge jsDelivr cache
+        #if: github.event_name == 'release'
         run: |
-          set -euo pipefail
-          echo "Purging jsDelivr cache for ${PACKAGE_NAME} ..."
+          echo "Purging jsDelivr cache for @krx3d/tizentube..."
+          
           # Purge latest tag
-          curl -i "https://purge.jsdelivr.net/npm/${PACKAGE_NAME}@latest/package.json" || true
-          # Purge all versions index
-          curl -i "https://purge.jsdelivr.net/npm/${PACKAGE_NAME}@*/package.json" || true
+          curl -i "https://purge.jsdelivr.net/npm/@krx3d/tizentube@latest/package.json" || true
+          
+          # Purge all versions
+          curl -i "https://purge.jsdelivr.net/npm/@krx3d/tizentube@*/package.json" || true
+          
           # Purge default (no version)
-          curl -i "https://purge.jsdelivr.net/npm/${PACKAGE_NAME}/package.json" || true
+          curl -i "https://purge.jsdelivr.net/npm/@krx3d/tizentube/package.json" || true
+          
           # Purge entire package (all files)
-          curl -i "https://purge.jsdelivr.net/npm/${PACKAGE_NAME}@*" || true
-
-      - name: Done
-        run: echo "Publish + cleanup complete."
+          curl -i "https://purge.jsdelivr.net/npm/@krx3d/tizentube@*" || true
+          
+          echo "✅ jsDelivr cache purge requests sent"

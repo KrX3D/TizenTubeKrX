@@ -95,6 +95,9 @@ jobs:
           # publish the package from repo root (ensure package.json version was bumped before creating the release)
           npm whoami
           npm publish --access public
+          
+      - name: Wait for npm propagation
+        run: sleep 10
 
       - name: Gather versions & times from npm
         env:
@@ -169,7 +172,7 @@ jobs:
           echo "--- Deprecate candidates ---"
           if [ -s /tmp/to_deprecate.txt ]; then cat /tmp/to_deprecate.txt; else echo "(none)"; fi
 
-      - name: Unpublish recent versions (<=72h) and deprecate the rest
+      - name: Unpublish recent versions (<=72h) and deprecate the rest (verbose + verify)
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           PKG: ${{ env.PACKAGE_NAME }}
@@ -178,32 +181,66 @@ jobs:
           printf "//registry.npmjs.org/:_authToken=%s\n" "${NPM_TOKEN}" > ~/.npmrc
           printf "always-auth=true\n" >> ~/.npmrc
 
-          # First attempt unpublish for recent versions
+          # function to attempt unpublish with retries
+          unpublish_with_retry(){
+            ver="$1"
+            max=3
+            attempt=1
+            while [ $attempt -le $max ]; do
+              echo "Attempt #$attempt: npm unpublish ${PKG}@${ver} ..."
+              # capture both stdout and stderr
+              if npm unpublish "${PKG}@${ver}" 2>&1 | tee /tmp/npm_unpublish_${ver}.log; then
+                echo "Unpublish succeeded for ${PKG}@${ver}"
+                return 0
+              else
+                echo "::warning::Unpublish attempt $attempt failed for ${PKG}@${ver} (see /tmp/npm_unpublish_${ver}.log)"
+                attempt=$((attempt + 1))
+                sleep 4
+              fi
+            done
+            return 1
+          }
+
+          # process unpublish candidates
           if [ -s /tmp/to_unpublish.txt ]; then
             while IFS= read -r ver; do
               [ -z "$ver" ] && continue
-              echo "Attempting npm unpublish ${PKG}@${ver} ..."
-              if npm unpublish "${PKG}@${ver}"; then
-                echo "Unpublished ${PKG}@${ver}"
+              echo "Processing unpublish candidate: ${ver}"
+              if unpublish_with_retry "$ver"; then
+                # verify removal
+                sleep 2
+                echo "Verifying ${PKG}@${ver} is gone..."
+                if npm view "${PKG}@${ver}" --json > /tmp/view_${ver}.json 2>&1; then
+                  echo "::warning::npm view still shows ${PKG}@${ver} — unpublish may not have completed. See /tmp/view_${ver}.json"
+                  # fall back to deprecate
+                  echo "Falling back to deprecate ${PKG}@${ver}"
+                  npm deprecate "${PKG}@${ver}" "Deprecated — please upgrade to a newer release." 2>&1 | tee /tmp/npm_deprecate_${ver}.log || echo "::warning::deprecate failed for ${ver}"
+                else
+                  echo "Verification: ${PKG}@${ver} does not exist according to npm view."
+                fi
               else
-                echo "::warning::Unpublish failed for ${PKG}@${ver} - falling back to deprecate"
-                npm deprecate "${PKG}@${ver}" "Deprecated — please upgrade to a newer release." || echo "::warning::Deprecate also failed for ${PKG}@${ver}"
+                echo "::warning::All unpublish attempts failed for ${PKG}@${ver} — falling back to deprecate"
+                npm deprecate "${PKG}@${ver}" "Deprecated — please upgrade to a newer release." 2>&1 | tee /tmp/npm_deprecate_${ver}.log || echo "::warning::deprecate failed for ${ver}"
               fi
             done < /tmp/to_unpublish.txt
           else
             echo "No recent versions to unpublish."
           fi
 
-          # Then deprecate older versions
+          # deprecate older versions
           if [ -s /tmp/to_deprecate.txt ]; then
             while IFS= read -r ver; do
               [ -z "$ver" ] && continue
               echo "Deprecating ${PKG}@${ver} ..."
-              npm deprecate "${PKG}@${ver}" "Deprecated — please upgrade to a newer release." || echo "::warning::Deprecate failed for ${PKG}@${ver}"
+              npm deprecate "${PKG}@${ver}" "Deprecated — please upgrade to a newer release." 2>&1 | tee /tmp/npm_deprecate_${ver}.log || echo "::warning::Deprecate failed for ${PKG}@${ver}"
             done < /tmp/to_deprecate.txt
           else
             echo "No older versions to deprecate."
           fi
+
+          # show final versions list for debug
+          echo "Final versions (npm view):"
+          npm view "${PKG}" versions --json || true
 
       - name: Wait for npm propagation
         run: sleep 10
