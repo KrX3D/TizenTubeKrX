@@ -151,8 +151,9 @@ jobs:
             }
           }
 
-          fs.writeFileSync("/tmp/to_unpublish.txt", toUnpublish.join("\n"));
-          fs.writeFileSync("/tmp/to_deprecate.txt", toDeprecate.join("\n"));
+          // Add trailing newline to ensure proper file format
+          fs.writeFileSync("/tmp/to_unpublish.txt", toUnpublish.length > 0 ? toUnpublish.join("\n") + "\n" : "");
+          fs.writeFileSync("/tmp/to_deprecate.txt", toDeprecate.length > 0 ? toDeprecate.join("\n") + "\n" : "");
 
           console.log("To unpublish (<= " + windowHours + "h):", toUnpublish);
           console.log("To deprecate (> " + windowHours + "h):", toDeprecate);
