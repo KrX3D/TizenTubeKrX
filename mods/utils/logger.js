@@ -17,11 +17,19 @@ class SyslogLogger {
   init() {
     // You can store these in config
     this.enabled = configRead('enableRemoteLogging') || false;
-    this.serverUrl = configRead('syslogServerUrl') || 'http://192.168.1.100:514'; // Change to your server
+    
+    // Build URL from IP and Port
+    const ip = configRead('syslogServerIp') || '192.168.1.100';
+    const port = configRead('syslogServerPort') || 514;
+    this.serverUrl = `http://${ip}:${port}`;
+    
     this.logLevel = configRead('logLevel') || 'INFO';
     
     if (this.enabled) {
+      console.log(`[Logger] Remote logging enabled to ${this.serverUrl}`);
       this.startBatchTimer();
+    } else {
+      console.log('[Logger] Remote logging disabled');
     }
   }
 

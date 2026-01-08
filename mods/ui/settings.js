@@ -700,21 +700,79 @@ export default function modernUI(update, parameters) {
                 value: 'enableRemoteLogging'
                 },
                 {
-                name: 'Syslog Server URL',
-                icon: 'LINK',
+                name: 'Configure Syslog Server',
+                icon: 'SETTINGS',
                 value: null,
-                menuId: 'tt-syslog-url',
+                menuId: 'tt-syslog-config',
                 menuHeader: {
-                    title: 'Syslog Server URL',
-                    subtitle: 'Enter your syslog server URL (e.g., http://192.168.1.100:514)'
+                    title: 'Syslog Server Configuration',
+                    subtitle: 'Enter your PC\'s IP address and port'
                 },
                 options: [
-                    // You could add preset IPs here, or just let users edit in config
                     {
-                    name: 'Configure manually in config',
-                    key: 'syslogServerUrl',
-                    value: null
+                    name: 'Server IP Address',
+                    icon: 'LINK',
+                    subtitle: configRead('syslogServerIp') || '192.168.1.100',
+                    value: null,
+                    options: {
+                        title: 'Syslog Server IP',
+                        subtitle: 'Enter your PC\'s IP address (e.g., 192.168.1.100)\n\nCurrent: ' + (configRead('syslogServerIp') || '192.168.1.100') + '\n\nNote: You need to edit this in the config manually.\nPress the remote\'s number keys or use the keyboard.',
+                        content: overlayMessageRenderer(
+                        'To change the IP address:\n\n' +
+                        '1. Note your PC\'s IP from the syslog server\n' +
+                        '2. Go to Settings > TizenTube Settings\n' +
+                        '3. Navigate with remote to highlight this option\n' +
+                        '4. Unfortunately, text input is limited on TV remotes\n\n' +
+                        'Current IP: ' + (configRead('syslogServerIp') || '192.168.1.100') + '\n' +
+                        'Current Port: ' + (configRead('syslogServerPort') || 514)
+                        )
                     }
+                    },
+                    {
+                    name: 'Server Port',
+                    icon: 'SETTINGS',
+                    value: null,
+                    menuId: 'tt-syslog-port',
+                    menuHeader: {
+                        title: 'Syslog Server Port',
+                        subtitle: 'Select port number (default: 514)'
+                    },
+                    options: [514, 8080, 3000, 5000, 9000].map((port) => {
+                        return {
+                        name: `Port ${port}`,
+                        key: 'syslogServerPort',
+                        value: port
+                        }
+                    })
+                    }
+                ]
+                },
+                {
+                name: 'Quick Setup Presets',
+                icon: 'SETTINGS',
+                value: null,
+                menuId: 'tt-syslog-presets',
+                menuHeader: {
+                    title: 'Quick IP Presets',
+                    subtitle: 'Common local network IP ranges'
+                },
+                options: [
+                    // Common router IP ranges
+                    ...Array.from({length: 10}, (_, i) => ({
+                    name: `192.168.1.${100 + i}`,
+                    key: 'syslogServerIp',
+                    value: `192.168.1.${100 + i}`
+                    })),
+                    ...Array.from({length: 10}, (_, i) => ({
+                    name: `192.168.0.${100 + i}`,
+                    key: 'syslogServerIp',
+                    value: `192.168.0.${100 + i}`
+                    })),
+                    ...Array.from({length: 10}, (_, i) => ({
+                    name: `192.168.70.${100 + i}`,
+                    key: 'syslogServerIp',
+                    value: `192.168.70.${100 + i}`
+                    })),
                 ]
                 },
                 {
@@ -729,13 +787,43 @@ export default function modernUI(update, parameters) {
                 options: ['DEBUG', 'INFO', 'WARN', 'ERROR'].map((level) => {
                     return {
                     name: level,
+                    icon: level === 'DEBUG' ? 'SETTINGS' : level === 'ERROR' ? 'ERROR' : 'INFO',
                     key: 'logLevel',
                     value: level
                     }
                 })
+                },
+                {
+                name: 'Test Connection',
+                icon: 'BROADCAST',
+                value: null,
+                options: {
+                    title: 'Test Syslog Connection',
+                    subtitle: 'Testing connection to ' + (configRead('syslogServerIp') || '192.168.1.100') + ':' + (configRead('syslogServerPort') || 514),
+                    content: scrollPaneRenderer([
+                    overlayMessageRenderer('A test log will be sent to your syslog server.'),
+                    overlayMessageRenderer('Check your PC terminal to see if the log appears.'),
+                    buttonItem(
+                        { title: 'Send Test Log', subtitle: 'Click to send a test message' },
+                        { icon: 'BROADCAST' },
+                        [
+                        {
+                            customAction: {
+                            action: 'TEST_SYSLOG_CONNECTION'
+                            }
+                        },
+                        {
+                            signalAction: {
+                            signal: 'POPUP_BACK'
+                            }
+                        }
+                        ]
+                    )
+                    ])
+                }
                 }
             ]
-        },
+            },
         window.h5vcc && window.h5vcc.tizentube ?
             {
                 name: 'TizenTube Cobalt Updater',
