@@ -1,3 +1,5 @@
+.github/
+.github/**
 node_modules
 mods
 service
