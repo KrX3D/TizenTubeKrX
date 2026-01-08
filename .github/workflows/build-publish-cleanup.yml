@@ -162,6 +162,8 @@ jobs:
           echo "=== Versions to unpublish ==="
           if [ -s /tmp/to_unpublish.txt ]; then 
             cat /tmp/to_unpublish.txt
+            echo ""
+            echo "Count: $(wc -l < /tmp/to_unpublish.txt)"
           else 
             echo "(none)"
           fi
@@ -170,6 +172,8 @@ jobs:
           echo "=== Versions to deprecate ==="
           if [ -s /tmp/to_deprecate.txt ]; then 
             cat /tmp/to_deprecate.txt
+            echo ""
+            echo "Count: $(wc -l < /tmp/to_deprecate.txt)"
           else 
             echo "(none)"
           fi
@@ -186,25 +190,50 @@ jobs:
           fi
 
           echo "Unpublishing old versions..."
+          FAILED_VERSIONS=""
+          COUNT=0
+          
           while IFS= read -r ver; do
             [ -z "$ver" ] && continue
+            COUNT=$((COUNT + 1))
             
             echo ""
             echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-            echo "Unpublishing: ${PKG}@${ver}"
+            echo "[$COUNT] Unpublishing: ${PKG}@${ver}"
             echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
             
-            # Simple unpublish - just like the manual workflow
-            if npm unpublish "${PKG}@${ver}"; then
+            # Capture full output for debugging
+            if npm unpublish "${PKG}@${ver}" 2>&1 | tee /tmp/unpublish_${ver}.log; then
               echo "✓ Unpublished ${PKG}@${ver}"
+              # Small delay to avoid rate limiting
+              sleep 2
             else
-              echo "::warning::Failed to unpublish ${PKG}@${ver}"
+              EXIT_CODE=$?
+              echo "::warning::Failed to unpublish ${PKG}@${ver} (exit code: ${EXIT_CODE})"
+              cat /tmp/unpublish_${ver}.log || true
+              FAILED_VERSIONS="${FAILED_VERSIONS}${ver} "
+              
               # Try deprecate as fallback
               echo "Attempting to deprecate instead..."
-              npm deprecate "${PKG}@${ver}" "Deprecated - please upgrade to latest version." || echo "::warning::Deprecate also failed"
+              if npm deprecate "${PKG}@${ver}" "Deprecated - please upgrade to latest version." 2>&1; then
+                echo "✓ Deprecated ${PKG}@${ver} as fallback"
+              else
+                echo "::error::Both unpublish and deprecate failed for ${PKG}@${ver}"
+              fi
             fi
             
           done < /tmp/to_unpublish.txt
+          
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "Processed $COUNT versions"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          
+          if [ -n "$FAILED_VERSIONS" ]; then
+            echo ""
+            echo "::warning::Failed to unpublish these versions: ${FAILED_VERSIONS}"
+            echo "They may have been deprecated as a fallback."
+          fi
 
       - name: Deprecate older versions (>72h)
         env:
