@@ -180,25 +180,26 @@ jobs:
       # ----------------------------
       # Copy built JS to repo root and commit (overwrites)
       # ----------------------------
-      - name: Copy built JS to repo root and commit
+      - name: Commit built files in dist/ (if changed)
         run: |
           set -euo pipefail
-          echo "Copying dist/*.js to repository root (overwriting existing files)..."
-          cp -f dist/userScript.js ./userScript.js
-          cp -f dist/service.js ./service.js
+          echo "Committing built files inside dist/ (if any changes)..."
 
           # configure git user
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          # stage files
-          git add userScript.js service.js
+          # ensure dist files are present
+          ls -lah dist || true
+
+          # stage dist files (use -f because dist/ is in .gitignore)
+          git add -f dist/userScript.js dist/service.js
 
           # commit only if staged changes exist
-          if git diff --staged --quiet; then
-            echo "No changes to built files — skipping commit."
+          if git diff --cached --quiet; then
+            echo "No changes to built files in dist/ — skipping commit."
           else
-            git commit -m "chore(build): update built userScript.js and service.js from CI [skip ci]"
+            git commit -m "chore(build): update built files in dist/ from CI [skip ci]"
             echo "Pushing updated built files to repo..."
             git push origin HEAD:main
           fi
@@ -391,20 +392,43 @@ jobs:
           npm view "${PKG}" version || true
 
       # --------------------
-      # Purge jsDelivr cache
+      # Purge jsDelivr cache (npm + GitHub repo)
       # --------------------
-      - name: Purge jsDelivr cache
+      - name: Generate jsDelivr URLs to purge
+        id: cdn_urls
         run: |
           set -euo pipefail
-          echo "Purging jsDelivr cache for ${PACKAGE_NAME} ..."
-          curl -i "https://purge.jsdelivr.net/npm/${PACKAGE_NAME}@latest/package.json" || true
-          curl -i "https://purge.jsdelivr.net/npm/${PACKAGE_NAME}@*/package.json" || true
-          curl -i "https://purge.jsdelivr.net/npm/${PACKAGE_NAME}/package.json" || true
-          curl -i "https://purge.jsdelivr.net/npm/${PACKAGE_NAME}@*" || true
           
-          curl -i "https://purge.jsdelivr.net/gh/${PACKAGE_NAME_GH}@latest" || true
-          curl -i "https://purge.jsdelivr.net/gh/${PACKAGE_NAME_GH}@*" || true
-          echo "✅ jsDelivr cache purge requests sent"
-
-      - name: Done
-        run: echo "✓ Build, publish and cleanup complete"
+          # Base URLs
+          NPM_BASE="https://cdn.jsdelivr.net/npm/${PACKAGE_NAME}"
+          GH_BASE="https://cdn.jsdelivr.net/gh/${PACKAGE_NAME_GH}"
+          
+          # Build URL list (comma-separated)
+          URLS=""
+          
+          # npm package URLs
+          URLS+="${NPM_BASE}@latest/package.json,"
+          URLS+="${NPM_BASE}@*/package.json,"
+          URLS+="${NPM_BASE}/package.json,"
+          URLS+="${NPM_BASE}@*,"
+          
+          # GitHub repo URLs - main branch
+          URLS+="${GH_BASE}@main/package.json,"
+          URLS+="${GH_BASE}@main/dist/userScript.js,"
+          URLS+="${GH_BASE}@main/dist/service.js,"
+          
+          # Purge entire repo (all branches/tags)
+          URLS+="${GH_BASE}@*"
+          
+          echo "urls=${URLS}" >> $GITHUB_OUTPUT
+          echo "Generated CDN URLs:"
+          echo "${URLS}" | tr ',' '\n'
+      
+      - name: Purge jsDelivr cache
+        uses: egad13/purge-jsdelivr-cache@v1
+        with:
+          url: ${{ steps.cdn_urls.outputs.urls }}
+          attempts: 3
+      
+      - name: Cache purge complete
+        run: echo "✅ jsDelivr cache purge complete (npm + GitHub)"
