@@ -6,7 +6,6 @@ import qrcode from 'qrcode-npm';
 export default function modernUI(update, parameters) {
     // ---------- Helpers for syslog nested menus ----------
     function buildFinalFourthOptions(firstOctet, secondOctet, thirdOctet, rangeStart, rangeEnd) {
-        // returns an array of option objects for each final ip (value: 'a.b.c.d')
         const buttons = [];
         for (let v = rangeStart; v <= rangeEnd; v++) {
             const ip = `${firstOctet}.${secondOctet}.${thirdOctet}.${v}`;
@@ -20,14 +19,14 @@ export default function modernUI(update, parameters) {
     }
 
     function buildFourthGroupOptions(firstOctet, secondOctet, thirdOctet) {
-        // returns array of objects representing groups of 16 (0-15, 16-31...)
+        // Split into groups of 10 for easier navigation (0-9, 10-19, etc.)
         const groups = [];
-        for (let base = 0; base <= 240; base += 16) {
+        for (let base = 0; base <= 250; base += 10) {
             const start = base;
-            const end = base + 15;
+            const end = Math.min(base + 9, 255);
             groups.push({
                 name: `${start} - ${end}`,
-                value: null, // <- mark as submenu so UI will drill in
+                value: null,
                 options: buildFinalFourthOptions(firstOctet, secondOctet, thirdOctet, start, end)
             });
         }
@@ -35,21 +34,37 @@ export default function modernUI(update, parameters) {
     }
 
     function buildThirdListOptions(firstOctet, secondOctet, rangeStart, rangeEnd) {
-        // returns array of objects for each third octet in [rangeStart, rangeEnd]
+        // Split into groups of 10 for third octet too (0-9, 10-19, etc.)
         const thirdList = [];
-        for (let t = rangeStart; t <= rangeEnd; t++) {
+        for (let base = rangeStart; base <= rangeEnd; base += 10) {
+            const start = base;
+            const end = Math.min(base + 9, rangeEnd);
             thirdList.push({
-                name: `${t}`,
-                subtitle: `${firstOctet}.${secondOctet}.${t}.x`,
-                value: null, // <- submenu marker
-                options: buildFourthGroupOptions(firstOctet, secondOctet, t)
+                name: `${start} - ${end}`,
+                subtitle: `${firstOctet}.${secondOctet}.${start}-${end}.x`,
+                value: null,
+                options: buildThirdDetailOptions(firstOctet, secondOctet, start, end)
             });
         }
         return thirdList;
     }
 
+    function buildThirdDetailOptions(firstOctet, secondOctet, rangeStart, rangeEnd) {
+        // Individual third octet values
+        const options = [];
+        for (let t = rangeStart; t <= rangeEnd; t++) {
+            options.push({
+                name: `${t}`,
+                subtitle: `${firstOctet}.${secondOctet}.${t}.x`,
+                value: null,
+                options: buildFourthGroupOptions(firstOctet, secondOctet, t)
+            });
+        }
+        return options;
+    }
+
     function buildThirdRangeOptions(firstOctet, secondOctet) {
-        // create the 4 major ranges for third octet: 0-63,64-127,128-191,192-255
+        // Split into major ranges of 64
         const ranges = [
             { s: 0, e: 63 },
             { s: 64, e: 127 },
@@ -58,25 +73,26 @@ export default function modernUI(update, parameters) {
         ];
         return ranges.map(r => ({
             name: `${r.s} - ${r.e}`,
-            subtitle: `Third-octet range for ${firstOctet}.${secondOctet}.x`,
-            value: null, // <- submenu marker
+            subtitle: `Third octet range for ${firstOctet}.${secondOctet}.x`,
+            value: null,
             options: buildThirdListOptions(firstOctet, secondOctet, r.s, r.e)
         }));
     }
 
     function buildPrefixOptions() {
-        // Common prefix candidates; can be extended
         const candidates = [
             { first: 192, second: 168 },
             { first: 10, second: 0 },
             { first: 172, second: 16 },
-            { first: 169, second: 254 } // link-local/example
+            { first: 172, second: 17 },
+            { first: 172, second: 18 },
+            { first: 169, second: 254 }
         ];
 
         return candidates.map(c => ({
             name: `${c.first}.${c.second}.x.x`,
-            subtitle: `Pick third and fourth octet for ${c.first}.${c.second}.x.x`,
-            value: null, // <- submenu marker (important)
+            subtitle: `Common network prefix`,
+            value: null,
             options: buildThirdRangeOptions(c.first, c.second)
         }));
     }

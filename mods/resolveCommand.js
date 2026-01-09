@@ -6,9 +6,6 @@ import { showToast, buttonItem } from './ui/ytUI.js';
 import checkForUpdates from './features/updater.js';
 
 export default function resolveCommand(cmd, _) {
-    // resolveCommand function is pretty OP, it can do from opening modals, changing client settings and way more.
-    // Because the client might change, we should find it first.
-
     for (const key in window._yttv) {
         if (window._yttv[key] && window._yttv[key].instance && window._yttv[key].instance.resolveCommand) {
             return window._yttv[key].instance.resolveCommand(cmd, _);
@@ -24,8 +21,6 @@ export function findFunction(funcName) {
     }
 }
 
-// Patch resolveCommand to be able to change TizenTube settings
-
 export function patchResolveCommand() {
     for (const key in window._yttv) {
         if (window._yttv[key] && window._yttv[key].instance && window._yttv[key].instance.resolveCommand) {
@@ -33,7 +28,6 @@ export function patchResolveCommand() {
             const ogResolve = window._yttv[key].instance.resolveCommand;
             window._yttv[key].instance.resolveCommand = function (cmd, _) {
                 if (cmd.setClientSettingEndpoint) {
-                    // Command to change client settings. Use TizenTube configuration to change settings.
                     for (const settings of cmd.setClientSettingEndpoint.settingDatas) {
                         if (!settings.clientSettingEnum.item.includes('_')) {
                             for (const setting of cmd.setClientSettingEndpoint.settingDatas) {
@@ -75,7 +69,6 @@ export function patchResolveCommand() {
                     customAction(cmd.playlistEditEndpoint.customAction.action, cmd.playlistEditEndpoint.customAction.parameters);
                     return true;
                 } else if (cmd?.openPopupAction?.uniqueId === 'playback-settings') {
-                    // Patch the playback settings popup to use TizenTube speed settings
                     const items = cmd.openPopupAction.popup.overlaySectionRenderer.overlay.overlayTwoPanelRenderer.actionPanel.overlayPanelRenderer.content.overlayPanelItemListRenderer.items;
                     for (const item of items) {
                         if (item?.compactLinkRenderer?.icon?.iconType === 'SLOW_MOTION_VIDEO') {
@@ -167,15 +160,46 @@ function customAction(action, parameters) {
             checkForUpdates(true);
             break;
         case 'TEST_SYSLOG_CONNECTION':
+            console.log('='.repeat(80));
+            console.log('TEST_SYSLOG_CONNECTION ACTION TRIGGERED!');
+            console.log('='.repeat(80));
+            
+            // Show immediate feedback
+            showToast('Syslog Test', '🔄 Testing connection...');
+            
+            // Dynamically import logger
             import('./utils/logger.js').then(module => {
+                console.log('✓ Logger module loaded successfully');
                 const logger = module.default;
+                
+                if (!logger) {
+                    console.error('✗ Logger is undefined!');
+                    showToast('Syslog Test', '✗ Logger not found');
+                    return;
+                }
+                
+                console.log('Logger instance:', logger);
+                console.log('Logger status:', logger.getStatus());
+                
+                // Call testConnection
                 logger.testConnection().then(result => {
-                    if (result.success) {
-                        showToast('Syslog Test', '✓ Connection successful! Check your PC terminal.');
+                    console.log('Test connection result:', result);
+                    
+                    if (result && result.success) {
+                        showToast('Syslog Test', '✓ Success! Check PC terminal.');
+                        console.log('✓ Connection test SUCCESSFUL!');
                     } else {
-                        showToast('Syslog Test', '✗ Failed: ' + (result.error || 'Unknown error'));
+                        const errorMsg = (result && result.error) || 'Unknown error';
+                        showToast('Syslog Test', '✗ Failed: ' + errorMsg);
+                        console.error('✗ Connection test FAILED:', errorMsg);
                     }
+                }).catch(err => {
+                    console.error('✗ testConnection() threw error:', err);
+                    showToast('Syslog Test', '✗ Error: ' + err.message);
                 });
+            }).catch(err => {
+                console.error('✗ Failed to import logger module:', err);
+                showToast('Syslog Test', '✗ Failed to load logger module');
             });
             break;
     }
