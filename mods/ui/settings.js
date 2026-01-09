@@ -798,113 +798,143 @@ export default function modernUI(update, parameters) {
                 title: 'Developer Options',
                 subtitle: 'Advanced debugging and logging options'
             },
-            options: [
-                {
-                    name: 'Enable Remote Logging',
-                    icon: 'BROADCAST',
-                    value: 'enableRemoteLogging'
-                },
-                {
-                    name: 'Configure Syslog Server',
-                    icon: 'SETTINGS',
-                    value: null,
-                    menuId: 'tt-syslog-config',
-                    menuHeader: {
-                        title: 'Syslog Server Configuration',
-                        subtitle: 'Enter your PC\'s IP address and port'
+            // Use getter so it evaluates dynamically each time
+            get options() {
+                const currentIp = configRead('syslogServerIp') || '192.168.50.98';
+                const currentPort = configRead('syslogServerPort') || 8080;
+                const currentLogLevel = configRead('logLevel') || 'INFO';
+                const loggingEnabled = configRead('enableRemoteLogging') || false;
+                
+                return [
+                    {
+                        name: 'Enable Remote Logging',
+                        icon: 'BROADCAST',
+                        value: 'enableRemoteLogging',
+                        subtitle: loggingEnabled ? `Enabled - ${currentIp}:${currentPort}` : 'Disabled'
                     },
-                    options: [
-                        {
-                            name: 'Server IP Address (Quick Presets)',
-                            icon: 'LINK',
-                            value: null,
-                            options: buildPrefixOptions()
+                    {
+                        name: 'Configure Syslog Server',
+                        icon: 'SETTINGS',
+                        value: null,
+                        menuId: 'tt-syslog-config',
+                        menuHeader: {
+                            title: 'Syslog Server Configuration',
+                            subtitle: `Current: ${currentIp}:${currentPort}`
                         },
-                        {
-                            name: 'Server IP Address (Legacy Quick Presets)',
-                            icon: 'LINK',
-                            value: null,
-                            menuId: 'tt-syslog-presets-legacy',
-                            options: [
-                                ...Array.from({length: 50}, (_, i) => ({
-                                    name: `192.168.50.${90 + i}`,
-                                    key: 'syslogServerIp',
-                                    value: `192.168.50.${90 + i}`
-                                })),
-                                ...Array.from({length: 20}, (_, i) => ({
-                                    name: `192.168.70.${100 + i}`,
-                                    key: 'syslogServerIp',
-                                    value: `192.168.70.${100 + i}`
-                                }))
-                            ]
-                        },
-                        {
-                            name: 'Server Port',
-                            icon: 'SETTINGS',
-                            value: null,
-                            menuId: 'tt-syslog-port',
-                            menuHeader: {
-                                title: 'Syslog Server Port',
-                                subtitle: 'Select port number (default: 8080)'
+                        options: [
+                            {
+                                name: 'Server IP Address (Quick Presets)',
+                                icon: 'LINK',
+                                subtitle: `Current: ${currentIp}`,
+                                value: null,
+                                options: buildPrefixOptions()
                             },
-                            options: [514, 8080, 3000, 5000, 9000].map((port) => {
-                                return {
-                                    name: `Port ${port}`,
-                                    key: 'syslogServerPort',
-                                    value: port
-                                }
-                            })
-                        },
-                        {
-                            name: 'Log Level',
-                            icon: 'SETTINGS',
-                            value: null,
-                            menuId: 'tt-log-level',
-                            menuHeader: {
-                                title: 'Log Level',
-                                subtitle: 'Set minimum log level to send'
+                            {
+                                name: 'Server IP Address (Legacy Quick Presets)',
+                                icon: 'LINK',
+                                value: null,
+                                subtitle: `Current: ${currentIp}`,
+                                menuId: 'tt-syslog-presets-legacy',
+                                options: [
+                                    ...Array.from({length: 50}, (_, i) => ({
+                                        name: `192.168.50.${90 + i}`,
+                                        key: 'syslogServerIp',
+                                        value: `192.168.50.${90 + i}`
+                                    })),
+                                    ...Array.from({length: 20}, (_, i) => ({
+                                        name: `192.168.70.${100 + i}`,
+                                        key: 'syslogServerIp',
+                                        value: `192.168.70.${100 + i}`
+                                    }))
+                                ]
                             },
-                            options: ['DEBUG', 'INFO', 'WARN', 'ERROR'].map((level) => {
-                                return {
-                                    name: level,
-                                    icon: level === 'DEBUG' ? 'SETTINGS' : level === 'ERROR' ? 'ERROR' : 'INFO',
-                                    key: 'logLevel',
-                                    value: level
-                                }
-                            })
-                        },
-                        {
-                            name: 'Test Connection',
-                            icon: 'BROADCAST',
-                            value: null,
-                            options: {
-                                title: 'Test Syslog Connection',
-                                subtitle: 'Testing connection to ' + (configRead('syslogServerIp') || '192.168.50.98') + ':' + (configRead('syslogServerPort') || 8080),
-                                content: scrollPaneRenderer([
-                                    overlayMessageRenderer('A test log will be sent to your syslog server.'),
-                                    overlayMessageRenderer('Check your PC terminal to see if the log appears.'),
-                                    buttonItem(
-                                        { title: 'Send Test Log', subtitle: 'Click to send a test message' },
-                                        { icon: 'BROADCAST' },
-                                        [
-                                            {
-                                                customAction: {
-                                                    action: 'TEST_SYSLOG_CONNECTION'
-                                                }
+                            {
+                                name: 'Server Port',
+                                icon: 'SETTINGS',
+                                value: null,
+                                subtitle: `Current: ${currentPort}`,
+                                menuId: 'tt-syslog-port',
+                                menuHeader: {
+                                    title: 'Syslog Server Port',
+                                    subtitle: `Current: ${currentPort} (default: 8080)`
+                                },
+                                options: [514, 8080, 3000, 5000, 9000].map((port) => {
+                                    return {
+                                        name: `Port ${port}`,
+                                        key: 'syslogServerPort',
+                                        value: port
+                                    }
+                                })
+                            },
+                            {
+                                name: 'Log Level',
+                                icon: 'SETTINGS',
+                                value: null,
+                                subtitle: `Current: ${currentLogLevel}`,
+                                menuId: 'tt-log-level',
+                                menuHeader: {
+                                    title: 'Log Level',
+                                    subtitle: `Current: ${currentLogLevel}`
+                                },
+                                options: ['DEBUG', 'INFO', 'WARN', 'ERROR'].map((level) => {
+                                    return {
+                                        name: level,
+                                        icon: level === 'DEBUG' ? 'SETTINGS' : level === 'ERROR' ? 'ERROR' : 'INFO',
+                                        key: 'logLevel',
+                                        value: level
+                                    }
+                                })
+                            },
+                            {
+                                name: 'Test Connection',
+                                icon: 'BROADCAST',
+                                value: null,
+                                subtitle: `Test ${currentIp}:${currentPort}`,
+                                options: {
+                                    title: 'Test Syslog Connection',
+                                    subtitle: `Testing ${currentIp}:${currentPort}`,
+                                    content: scrollPaneRenderer([
+                                        overlayMessageRenderer(`📡 Current Configuration:`),
+                                        overlayMessageRenderer(`IP Address: ${currentIp}`),
+                                        overlayMessageRenderer(`Port: ${currentPort}`),
+                                        overlayMessageRenderer(`Log Level: ${currentLogLevel}`),
+                                        overlayMessageRenderer(`Remote Logging: ${loggingEnabled ? '✓ Enabled' : '✗ Disabled'}`),
+                                        overlayMessageRenderer(''),
+                                        overlayMessageRenderer('💡 What this does:'),
+                                        overlayMessageRenderer('Sends a test log to your PC syslog server.'),
+                                        overlayMessageRenderer('Check your PC terminal to see if the log appears.'),
+                                        overlayMessageRenderer(''),
+                                        overlayMessageRenderer('⚠️ Make sure:'),
+                                        overlayMessageRenderer('1. syslog-server.js is running on your PC'),
+                                        overlayMessageRenderer('2. IP address is correct'),
+                                        overlayMessageRenderer('3. Windows Firewall allows port ' + currentPort),
+                                        overlayMessageRenderer('4. TV and PC are on same network'),
+                                        buttonItem(
+                                            { 
+                                                title: '🧪 Send Test Log', 
+                                                subtitle: `To ${currentIp}:${currentPort}` 
                                             },
-                                            {
-                                                signalAction: {
-                                                    signal: 'POPUP_BACK'
+                                            { icon: 'BROADCAST' },
+                                            [
+                                                {
+                                                    customAction: {
+                                                        action: 'TEST_SYSLOG_CONNECTION'
+                                                    }
+                                                },
+                                                {
+                                                    signalAction: {
+                                                        signal: 'POPUP_BACK'
+                                                    }
                                                 }
-                                            }
-                                        ]
-                                    )
-                                ])
+                                            ]
+                                        )
+                                    ])
+                                }
                             }
-                        }
-                    ]
-                }
-            ]
+                        ]
+                    }
+                ];
+            }
         },
 
         window.h5vcc && window.h5vcc.tizentube ?
@@ -1075,6 +1105,7 @@ export function optionShow(parameters, update) {
             }
             const isRadioChoice = option.key !== null && option.key !== undefined;
             const currentVal = configRead(isRadioChoice ? option.key : option.value);
+            
             buttons.push(
                 buttonItem(
                     { title: option.name, subtitle: option.subtitle },
@@ -1114,8 +1145,8 @@ export function optionShow(parameters, update) {
                                 action: 'OPTIONS_SHOW',
                                 parameters: {
                                     options: parameters.options,
-                                    selectedIndex: index,
-                                    update: parameters.options?.title ? 'customUI' : true,
+                                    selectedIndex: index, // Keep current selection highlighted
+                                    update: true, // FORCE UPDATE to refresh the UI
                                     menuId: parameters.menuId,
                                     arrayToEdit: parameters.arrayToEdit,
                                     menuHeader: parameters.menuHeader
@@ -1141,7 +1172,7 @@ export function optionShow(parameters, update) {
                                 parameters: {
                                     options: parameters.options,
                                     selectedIndex: index,
-                                    update: parameters.options?.title ? 'customUI' : true,
+                                    update: true, // FORCE UPDATE
                                     menuId: parameters.menuId,
                                     arrayToEdit: parameters.arrayToEdit,
                                     menuHeader: parameters.menuHeader
