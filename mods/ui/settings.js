@@ -894,7 +894,7 @@ export default function modernUI(update, parameters) {
                                     title: 'Test Syslog Connection',
                                     subtitle: `Testing ${currentIp}:${currentPort}`,
                                     content: scrollPaneRenderer([
-                                        overlayMessageRenderer(`📡 Current Configuration:`),
+                                        overlayMessageRenderer(`📡 KrX Current Configuration:`),
                                         overlayMessageRenderer(`IP Address: ${currentIp}`),
                                         overlayMessageRenderer(`Port: ${currentPort}`),
                                         overlayMessageRenderer(`Log Level: ${currentLogLevel}`),
