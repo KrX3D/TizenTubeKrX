@@ -2,9 +2,10 @@
 // This creates an on-screen console you can see on your TV
 
 (function() {
+    const CONFIG_KEY = 'ytaf-configuration';
+    
     const getConsolePosition = () => {
         try {
-            const CONFIG_KEY = 'ytaf-configuration';
             const config = JSON.parse(window.localStorage[CONFIG_KEY] || '{}');
             return config.debugConsolePosition || 'bottom-right';
         } catch (e) {
@@ -14,7 +15,6 @@
 
     const getConsoleEnabled = () => {
         try {
-            const CONFIG_KEY = 'ytaf-configuration';
             const config = JSON.parse(window.localStorage[CONFIG_KEY] || '{}');
             return config.enableDebugConsole !== false;
         } catch (e) {
@@ -22,22 +22,24 @@
         }
     };
 
-    const position = getConsolePosition();
+    let currentPosition = getConsolePosition();
     let enabled = getConsoleEnabled();
 
     const positions = {
-        'top-left': 'top: 0; left: 0;',
-        'top-right': 'top: 0; right: 0;',
-        'bottom-left': 'bottom: 0; left: 0;',
-        'bottom-right': 'bottom: 0; right: 0;',
-        'center': 'top: 50%; left: 50%; transform: translate(-50%, -50%);'
+        'top-left': { top: '0', left: '0', right: '', bottom: '', transform: '' },
+        'top-right': { top: '0', right: '0', left: '', bottom: '', transform: '' },
+        'bottom-left': { bottom: '0', left: '0', right: '', top: '', transform: '' },
+        'bottom-right': { bottom: '0', right: '0', left: '', top: '', transform: '' },
+        'center': { top: '50%', left: '50%', right: '', bottom: '', transform: 'translate(-50%, -50%)' }
     };
 
     const consoleDiv = document.createElement('div');
     consoleDiv.id = 'tv-debug-console';
+    
+    // Apply initial position
+    const posStyles = positions[currentPosition] || positions['bottom-right'];
     consoleDiv.style.cssText = `
         position: fixed;
-        ${positions[position] || positions['bottom-right']}
         width: 900px;
         height: 500px;
         background: rgba(0, 0, 0, 0.95);
@@ -46,11 +48,15 @@
         font-size: 13px;
         padding: 10px;
         overflow-y: auto;
+        overflow-x: hidden;
         z-index: 999999;
         border: 3px solid #0f0;
         display: ${enabled ? 'block' : 'none'};
         box-shadow: 0 0 20px rgba(0, 255, 0, 0.5);
     `;
+    
+    // Set position
+    Object.assign(consoleDiv.style, posStyles);
 
     if (document.body) {
         document.body.appendChild(consoleDiv);
@@ -65,6 +71,30 @@
     const originalWarn = console.warn;
 
     let logs = [];
+    let autoScrollEnabled = true;
+
+    // MutationObserver to auto-scroll whenever content changes
+    const observer = new MutationObserver(() => {
+        if (autoScrollEnabled && consoleDiv) {
+            // Use setTimeout to ensure DOM is fully updated
+            setTimeout(() => {
+                consoleDiv.scrollTop = consoleDiv.scrollHeight;
+            }, 0);
+        }
+    });
+
+    // Start observing the console div
+    observer.observe(consoleDiv, {
+        childList: true,
+        subtree: true,
+        characterData: true
+    });
+
+    // Detect manual scroll - disable auto-scroll if user scrolls up
+    consoleDiv.addEventListener('scroll', () => {
+        const isAtBottom = consoleDiv.scrollHeight - consoleDiv.scrollTop <= consoleDiv.clientHeight + 50;
+        autoScrollEnabled = isAtBottom;
+    });
 
     function addLog(message, type = 'log') {
         const color = type === 'error' ? '#f00' : type === 'warn' ? '#ff0' : '#0f0';
@@ -76,11 +106,7 @@
 
         if (consoleDiv) {
             consoleDiv.innerHTML = logs.join('');
-            
-            // FORCE AUTO-SCROLL using requestAnimationFrame
-            requestAnimationFrame(() => {
-                consoleDiv.scrollTop = consoleDiv.scrollHeight;
-            });
+            // MutationObserver will handle the scroll
         }
     }
 
@@ -104,7 +130,7 @@
         if (e.key === '`' || e.key === 'F12') {
             enabled = !enabled;
             consoleDiv.style.display = enabled ? 'block' : 'none';
-            saveEnabledState(enabled);
+            saveConfig({ enableDebugConsole: enabled });
         }
         if (e.key === 'c' && enabled) {
             logs = [];
@@ -112,14 +138,22 @@
         }
     });
 
-    function saveEnabledState(isEnabled) {
+    function saveConfig(updates) {
         try {
-            const CONFIG_KEY = 'ytaf-configuration';
             const config = JSON.parse(window.localStorage[CONFIG_KEY] || '{}');
-            config.enableDebugConsole = isEnabled;
+            Object.assign(config, updates);
             window.localStorage[CONFIG_KEY] = JSON.stringify(config);
+            
+            // Trigger config change event manually
+            if (window.configChangeEmitter) {
+                Object.keys(updates).forEach(key => {
+                    window.configChangeEmitter.dispatchEvent(
+                        new CustomEvent('configChange', { detail: { key, value: updates[key] } })
+                    );
+                });
+            }
         } catch (e) {
-            // ignore
+            console.error('[Visual Console] Failed to save config:', e);
         }
     }
 
@@ -129,56 +163,60 @@
         if (consoleDiv) {
             consoleDiv.style.display = enabled ? 'block' : 'none';
         }
-        saveEnabledState(enabled);
-        console.log('[Visual Console] ' + (enabled ? 'Shown' : 'Hidden'));
+        saveConfig({ enableDebugConsole: enabled });
+        
+        // Force a log to show it worked
+        const msg = enabled ? 'Console SHOWN' : 'Console HIDDEN';
+        if (enabled) {
+            addLog('[Visual Console] ' + msg, 'log');
+        }
     };
 
-    // Update position function
+    // Update position function with IMMEDIATE effect
     window.setDebugConsolePosition = function(pos) {
-        const positionStyle = positions[pos] || positions['bottom-right'];
+        currentPosition = pos;
+        const posStyles = positions[pos] || positions['bottom-right'];
+        
         if (consoleDiv) {
-            consoleDiv.style.top = '';
-            consoleDiv.style.right = '';
-            consoleDiv.style.bottom = '';
-            consoleDiv.style.left = '';
-            consoleDiv.style.transform = '';
-            
-            const styles = positionStyle.split(';').filter(s => s.trim());
-            styles.forEach(style => {
-                const [prop, value] = style.split(':').map(s => s.trim());
-                if (prop && value) {
-                    consoleDiv.style[prop] = value;
-                }
-            });
+            Object.assign(consoleDiv.style, posStyles);
         }
         
-        try {
-            const CONFIG_KEY = 'ytaf-configuration';
-            const config = JSON.parse(window.localStorage[CONFIG_KEY] || '{}');
-            config.debugConsolePosition = pos;
-            window.localStorage[CONFIG_KEY] = JSON.stringify(config);
-        } catch (e) {
-            // ignore
-        }
+        saveConfig({ debugConsolePosition: pos });
+        addLog('[Visual Console] Position changed to: ' + pos, 'log');
     };
 
-    // Listen for config changes to update visibility in real-time
-    window.addEventListener('storage', (e) => {
-        if (e.key === 'ytaf-configuration') {
-            const newConfig = JSON.parse(e.newValue || '{}');
-            const newEnabled = newConfig.enableDebugConsole !== false;
+    // Listen for config changes from settings UI
+    const checkConfigInterval = setInterval(() => {
+        try {
+            const config = JSON.parse(window.localStorage[CONFIG_KEY] || '{}');
+            
+            // Check if enabled state changed
+            const newEnabled = config.enableDebugConsole !== false;
             if (newEnabled !== enabled) {
                 enabled = newEnabled;
                 if (consoleDiv) {
                     consoleDiv.style.display = enabled ? 'block' : 'none';
                 }
             }
+            
+            // Check if position changed
+            const newPosition = config.debugConsolePosition || 'bottom-right';
+            if (newPosition !== currentPosition) {
+                currentPosition = newPosition;
+                const posStyles = positions[newPosition] || positions['bottom-right'];
+                if (consoleDiv) {
+                    Object.assign(consoleDiv.style, posStyles);
+                }
+            }
+        } catch (e) {
+            // ignore
         }
-    });
+    }, 500); // Check every 500ms
 
-    console.log('[Visual Console] Initialized');
-    console.log('[Visual Console] Position: ' + position);
+    console.log('[Visual Console] Initialized v3');
+    console.log('[Visual Console] Position: ' + currentPosition);
     console.log('[Visual Console] Enabled: ' + enabled);
+    console.log('[Visual Console] Auto-scroll: active');
 })();
 
 import "./utils/debugBridge.js";
