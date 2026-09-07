@@ -375,6 +375,31 @@ export default function modernUI(update, parameters) {
                     ]
                 },
                 {
+                    name: t('settings.options.misc.options.syslog.title'),
+                    icon: 'SEND',
+                    value: null,
+                    menuId: 'tt-syslog-settings',
+                    subtitle: t('settings.options.misc.options.syslog.receiverSubtitle', {
+                        host: configRead('syslogHost') || t('settings.options.misc.options.syslog.receiverNotSet'),
+                        port: configRead('syslogPort')
+                    }),
+                    options: [
+                        {
+                            name: t('settings.options.misc.options.syslog.enable'),
+                            icon: 'WIFI',
+                            value: 'syslogEnabled'
+                        },
+                        {
+                            name: t('settings.options.misc.options.syslog.test'),
+                            subtitle: t('settings.options.misc.options.syslog.testSubtitle'),
+                            icon: 'SEND',
+                            customAction: {
+                                action: 'SYSLOG_TEST'
+                            }
+                        }
+                    ]
+                },
+                {
                     name: t('settings.options.misc.options.logServer.title'),
                     icon: 'SEND',
                     value: null,

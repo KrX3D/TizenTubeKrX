@@ -6,6 +6,7 @@ import { showToast, buttonItem } from './ui/ytUI.js';
 import checkForUpdates from './features/updater.js';
 import { playlistContinue } from './features/playlistContinue.js';
 import { sendTestPing } from './features/logServer.js';
+import { sendSyslogTest } from './features/syslog.js';
 import { screenOff } from './features/screenOff.js';
 import { shareCurrentVideo } from './features/qrShare.js';
 import { requestNextAndNavigateChannel } from './utils/innerTubeCalls.js';
@@ -318,6 +319,14 @@ function customAction(action, parameters) {
             }
             configWrite('sidebarContentsOrder', sidebarOrder);
             showToast(t('toasts.sidebarContentsUpdated.title'), t('toasts.sidebarContentsUpdated.subtitle'));
+            break;
+        }
+        case 'SYSLOG_TEST': {
+            const result = sendSyslogTest();
+            if (!result.enabled) showToast('TizenTube', t('settings.options.misc.options.syslog.testDisabled'));
+            else if (result.noHost) showToast('TizenTube', t('settings.options.misc.options.syslog.testNoHost'));
+            else if (result.queued) showToast('TizenTube', t('settings.options.misc.options.syslog.testQueued'));
+            else showToast('TizenTube', t('settings.options.misc.options.syslog.testFailed'));
             break;
         }
         case 'LOG_SERVER_TEST_PING': {

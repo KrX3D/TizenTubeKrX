@@ -35,6 +35,12 @@ const RETRY_DELAY_MS = 750;
 // already open for injection (same technique TizenBrew's own service uses
 // for the equivalent problem) so delivery doesn't depend on page-side
 // networking at all.
+// Set by index.js. Kept as a module-level hook rather than threaded through
+// startDebugger's argument list, so adding syslog does not change the
+// signature of the injection path — that path is fragile enough already.
+let _relaySyslog = null;
+function setSyslogRelay(fn) { _relaySyslog = typeof fn === 'function' ? fn : null; }
+
 function pollLogQueue(client, relayLog) {
     if (typeof relayLog !== 'function') return;
 
@@ -60,16 +66,26 @@ function pollLogQueue(client, relayLog) {
     let consecutiveFailures = 0;
     const interval = setInterval(() => {
         client.Runtime.evaluate({
-            expression: '(function(){ var q = window.__ttLogQueue || []; window.__ttLogQueue = []; return JSON.stringify(q); })()',
+            // Both queues are drained in the same round-trip: syslog adds no
+            // extra evaluate() and so no extra in-page cost, which matters
+            // because this poll already competes with YouTube's own rendering.
+            expression: '(function(){ var q = window.__ttLogQueue || []; window.__ttLogQueue = []; var s = window.__ttSyslogQueue || []; window.__ttSyslogQueue = []; return JSON.stringify({ logs: q, syslog: s }); })()',
             returnByValue: true
         }).then(result => {
             consecutiveFailures = 0;
             const value = result && result.result && result.result.value;
             if (!value) return;
-            let entries;
-            try { entries = JSON.parse(value); } catch (e) { return; }
+            let drained;
+            try { drained = JSON.parse(value); } catch (e) { return; }
+            // Older injected bundles returned a bare array of log entries.
+            const entries = Array.isArray(drained) ? drained : (drained.logs || []);
             for (const entry of entries) {
                 relayLog(entry, entry.__ttLogHost, entry.__ttLogPort);
+            }
+            if (_relaySyslog) {
+                for (const item of (Array.isArray(drained) ? [] : (drained.syslog || []))) {
+                    _relaySyslog(item.frame, item.host, item.port);
+                }
             }
         }).catch(() => {
             consecutiveFailures++;
@@ -531,6 +547,7 @@ function startDebugger(args, relayLog, sessionId, attempt) {
 }
 
 module.exports = {
+    setSyslogRelay,
     startDebugger,
     canConnectToDaemon
 };

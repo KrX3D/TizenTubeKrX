@@ -85,6 +85,18 @@
                         "testDisabled": "Enable Remote Logging first",
                         "testFailed": "Log ping failed",
                         "disabled": "Remote Logging disabled"
+                    },
+                    "syslog": {
+                        "title": "Syslog Server",
+                        "enable": "Enable Syslog Output",
+                        "receiverSubtitle": "Sending to {{host}}:{{port}}",
+                        "receiverNotSet": "not set",
+                        "test": "Test Syslog Connection",
+                        "testSubtitle": "Send a single frame to the syslog server",
+                        "testDisabled": "Syslog output is turned off.",
+                        "testNoHost": "No syslog host is set.",
+                        "testQueued": "Syslog test frame sent.",
+                        "testFailed": "Could not send the syslog frame."
                     }
                 }
             },

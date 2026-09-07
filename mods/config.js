@@ -84,6 +84,13 @@ const defaultConfig = {
   debugConsolePosition: 'top-left',
   debugConsoleHeight: 1054,
   logServerEnabled: false,
+  // syslog output, independent of the log server above.
+  syslogEnabled: false,
+  syslogHost: '',
+  syslogPort: 514,
+  syslogFacility: 16,
+  syslogAppName: 'TizenTube',
+  syslogHostname: '',
   logServerHost: '192.168.50.57',
   logServerPort: 3030,
   enablePlaylistBatchCollect: false,

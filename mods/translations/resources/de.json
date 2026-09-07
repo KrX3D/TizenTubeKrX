@@ -85,6 +85,18 @@
                         "testDisabled": "Protokollierung zuerst aktivieren",
                         "testFailed": "Log-Ping fehlgeschlagen",
                         "disabled": "Protokollierung deaktiviert"
+                    },
+                    "syslog": {
+                        "title": "Syslog-Server",
+                        "enable": "Syslog-Ausgabe aktivieren",
+                        "receiverSubtitle": "Sendet an {{host}}:{{port}}",
+                        "receiverNotSet": "nicht gesetzt",
+                        "test": "Syslog-Verbindung testen",
+                        "testSubtitle": "Ein einzelnes Paket an den Syslog-Server senden",
+                        "testDisabled": "Die Syslog-Ausgabe ist deaktiviert.",
+                        "testNoHost": "Es ist kein Syslog-Host gesetzt.",
+                        "testQueued": "Syslog-Testpaket gesendet.",
+                        "testFailed": "Das Syslog-Paket konnte nicht gesendet werden."
                     }
                 }
             },

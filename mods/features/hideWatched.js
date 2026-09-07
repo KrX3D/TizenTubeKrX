@@ -1,5 +1,6 @@
 import { configRead } from '../config.js';
 import { lockupVideoId, lockupWatchPercent } from './lockupViewModel.js';
+import { sendSyslog } from './syslog.js';
 
 // ── Logging ───────────────────────────────────────────────────────────────────
 
@@ -10,10 +11,14 @@ export function appendFileOnlyLog(label, payload) {
   // these onto the PC log receiver, needing enableDebugLogging too, even
   // though these never show in the on-screen visual console either way.
   // logServerEnabled alone is now sufficient for the PC relay path.
-  if (!configRead('enableDebugLogging') && !configRead('logServerEnabled')) return;
+  if (!configRead('enableDebugLogging') && !configRead('logServerEnabled') && !configRead('syslogEnabled')) return;
   if (!Array.isArray(window.__ttFileOnlyLogs)) window.__ttFileOnlyLogs = [];
   let msg = '';
   try { msg = JSON.stringify(payload); } catch { msg = String(payload); }
+  // syslog taps the same choke point rather than logServer.js's array hook,
+  // so the two outputs stay fully independent — either can be on without the
+  // other, and a dead syslog target cannot stop the log server relaying.
+  try { sendSyslog({ ts: new Date().toISOString(), level: 'INFO', context: 'TizenTube', label, message: `${label} ${msg}` }); } catch (_) { }
   // No longer truncated here — logServer.js's sendRemotePayload now splits
   // long messages into multiple sent parts instead of the previous cutoff
   // silently discarding everything past 500 chars. This array also feeds
