@@ -9,14 +9,33 @@ configChangeEmitter.addEventListener('configChange', (event) => {
 
 let interval;
 
-function disableWhosWatching(value) {
+// Reported on-device (standalone, Tizen 6.5): after a full TV power cycle
+// (not just closing/reopening the app), the profile-selector screen
+// sometimes shows up even though this is supposed to keep suppressing it.
+// A power cycle is a much slower cold boot than a simple app restart — this
+// function only ever ran once, synchronously, at script load, so if
+// YouTube's own code hadn't created the recurring_actions localStorage key
+// yet by the time this ran (a genuine race on a slow cold boot, not present
+// on a warm restart where the key already exists from before), this bailed
+// out immediately with just a console warning, leaving suppression never
+// applied for that launch. Bounded retry so a slow cold boot gets more than
+// one chance before giving up.
+const MAX_RETRY_ATTEMPTS = 10;
+const RETRY_DELAY_MS = 500;
+
+function disableWhosWatching(value, attempt) {
+    if (attempt === undefined) attempt = 0;
     // FIX: Wrap the entire function body — localStorage may be missing or corrupt
     // (e.g. first boot, reset, or storage quota hit) and JSON.parse can throw.
     let LeanbackRecurringActions;
     try {
         const raw = localStorage['yt.leanback.default::recurring_actions'];
         if (!raw) {
-            console.warn('[disableWhosWatching] recurring_actions not found in localStorage — skipping');
+            if (attempt < MAX_RETRY_ATTEMPTS) {
+                setTimeout(() => disableWhosWatching(value, attempt + 1), RETRY_DELAY_MS);
+                return;
+            }
+            console.warn('[disableWhosWatching] recurring_actions not found in localStorage after retrying — giving up');
             return;
         }
         LeanbackRecurringActions = JSON.parse(raw);
