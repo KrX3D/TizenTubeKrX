@@ -91,6 +91,15 @@
 
         const serviceId = pkgId + ".StandaloneService";
 
+        // Bounds the isConnecting poll below. Waiting is preferred over the proxy
+        // path — the proxy rewrites YouTube's traffic, which is confirmed to
+        // trigger verification challenges that stop playback (see README) — but
+        // waiting forever is how a wedged isConnecting became a permanent splash
+        // screen. Roughly 30s of patience, then take the degraded path rather
+        // than none at all.
+        var MAX_CONNECTING_POLLS = 30;
+        var connectingPolls = 0;
+
         function useInjectorOrProxy() {
             sendLog('INFO', 'useInjectorOrProxy() called, fetching getState');
             const data = tizen.application.getCurrentApplication().getRequestedAppControl().appControl.data;
@@ -112,16 +121,24 @@
                     } else if (!res.canConnectToDaemon) {
                         sendLog('INFO', 'Taking proxy path, navigating to localhost:8099/tv');
                         location.href = `http://localhost:8099/tv?additionalDataUrl=http%3A%2F%2Flocalhost%3A8095%2Fdial%2Fapps%2FYouTube${args ? `&${args}` : ''}`
-                    } else {
+                    } else if (connectingPolls < MAX_CONNECTING_POLLS) {
                         // canConnectToDaemon && isConnecting: a connection attempt is
                         // (or was) already in progress. Neither branch above matched,
                         // so previously this silently did nothing — a permanent hang
                         // whenever isConnecting got stuck true (e.g. a previous CDP
                         // attempt that never completed or failed, confirmed on-device).
-                        // Poll instead of giving up; injector.js also now times out a
-                        // stuck attempt so this isn't an infinite wait in practice.
-                        sendLog('INFO', 'canConnectToDaemon but isConnecting, retrying in 1s');
+                        // Poll rather than give up: injector.js times out a stuck
+                        // attempt, so the usual outcome is the preferred CDP path.
+                        connectingPolls++;
+                        sendLog('INFO', 'canConnectToDaemon but isConnecting, retrying in 1s (' + connectingPolls + '/' + MAX_CONNECTING_POLLS + ')');
                         setTimeout(useInjectorOrProxy, 1000);
+                    } else {
+                        // Out of patience. isConnecting has stayed true well past
+                        // injector.js's own give-up point, so nothing is coming —
+                        // fall back to the proxy instead of sitting on the splash
+                        // screen indefinitely, which is what this state used to do.
+                        sendLog('ERROR', 'isConnecting still true after ' + MAX_CONNECTING_POLLS + ' polls, falling back to proxy path');
+                        location.href = `http://localhost:8099/tv?additionalDataUrl=http%3A%2F%2Flocalhost%3A8095%2Fdial%2Fapps%2FYouTube${args ? `&${args}` : ''}`
                     }
                 }).catch((err) => {
                     sendLog('ERROR', 'getState fetch failed, reloading: ' + (err && err.message || err));
