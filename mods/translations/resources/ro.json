@@ -8,7 +8,11 @@
         "options": {
             "socialMedia": {
                 "title": "Link-uri pentru rețelele de socializare",
-                "qrCodeScanMessage": "Poți vizita pagina {{name}} scanând codul QR de mai jos."
+                "qrCodeScanMessage": "Poți vizita pagina {{name}} scanând codul QR de mai jos.",
+                "announcements": "Announcements",
+                "group": "Group",
+                "website": "Website",
+                "githubSponsors": "GitHub Sponsors"
             },
             "adBlock": "AdBlock",
             "sponsorblock": {
@@ -82,7 +86,8 @@
                             "showAIAskBtn": "Afișează butonul Întreabă",
                             "showSpeedCtrlBtn": "Afișează butonul de control al vitezei",
                             "addMPBtn": "Afișează butonul pentru Mini Player",
-                            "swapMPWithPIP": "Schimbă butonul Mini Player cu butonul PiP"
+                            "swapMPWithPIP": "Schimbă butonul Mini Player cu butonul PiP",
+                            "showAIAskBtn": "Show Ask Button"
                         }
                     },
                     "preferredVideoQuality": {
@@ -101,7 +106,10 @@
                     "afrPauseDuration": {
                         "title": "Durata pauzei pentru rata de cadre automată",
                         "subtitle": "Setează durata (în secunde) pentru pauza redării video la ajustarea ratei de cadre"
-                    }
+                    },
+                    "codecAny": "Any",
+                    "qualityAuto": "Auto",
+                    "hideRelatedVideosPlayer": "Hide Related Videos"
                 }
             },
             "uiSettings": {
@@ -149,8 +157,41 @@
                         "options": {
                             "enableClock": "Activează ceasul",
                             "isClock12HourFormat": "Folosește formatul de 12 ore pentru ceas",
-                            "clockShowSeconds": "Afișează secundele la ceas"
+                            "clockShowSeconds": "Afișează secundele la ceas",
+                            "clockHideWhenVideoPlaying": "Hide Clock While Video is Playing"
                         }
+                    },
+                    "categories": {
+                        "search": "Search",
+                        "home": "Home",
+                        "sports": "Sports",
+                        "news": "News",
+                        "music": "Music",
+                        "podcasts": "Podcasts",
+                        "moviesAndTv": "Movies & TV",
+                        "live": "Live",
+                        "gaming": "Gaming",
+                        "subscriptions": "Subscriptions",
+                        "library": "Library",
+                        "more": "More",
+                        "shorts": "Shorts",
+                        "searchResults": "Search Results"
+                    },
+                    "disableEnlargingThumbnails": "Disable Enlarged Thumbnails",
+                    "enableShrinkingThumbnails": "Enable Shrinked Thumbnails",
+                    "sortSidebarContents": {
+                        "title": "Sort Sidebar Contents",
+                        "subtitle": "Reorder sidebar contents to your preference",
+                        "moveUp": {
+                            "title": "Move Up",
+                            "subtitle": "Move this item up in the sidebar"
+                        },
+                        "moveDown": {
+                            "title": "Move Down",
+                            "subtitle": "Move this item down in the sidebar"
+                        },
+                        "addToSidebar": "Add Channel to Sidebar",
+                        "removeFromSidebar": "Remove Channel from Sidebar"
                     }
                 }
             },
@@ -161,7 +202,38 @@
                 "options": {
                     "checkForUpdates": "Verifică dacă există actualizări noi",
                     "checkForUpdatesOnStartup": "Verifică dacă există actualizări noi la pornire"
+                },
+                "updateAvailable": {
+                    "title": "Update Available",
+                    "subtitle": "A new version of TizenTube Cobalt is available: {{latestVersion}}, current: {{currentVersion}}"
+                },
+                "releaseDate": "Release Date: {{date}}",
+                "updateNow": {
+                    "title": "Update Now",
+                    "subtitle": "Click to download the latest version."
+                },
+                "remindLater": {
+                    "title": "Remind Me Later",
+                    "subtitle": "Check for updates later."
+                },
+                "upToDate": {
+                    "title": "TizenTube is up to date",
+                    "subtitle": "You are using the latest version ({{version}}) of TizenTube Cobalt."
+                },
+                "checkFailed": {
+                    "title": "TizenTube update check failed",
+                    "subtitle": "Could not check for updates."
+                },
+                "downloading": {
+                    "title": "TizenTube Update",
+                    "subtitle": "Downloading update, please wait..."
                 }
+            },
+            "time": {
+                "second": "{{count}} second",
+                "seconds": "{{count}} seconds",
+                "minute": "{{count}} minute",
+                "minutes": "{{count}} minutes"
             }
         },
         "ttSettings": {
@@ -203,6 +275,32 @@
             "notSkipping": "Nu se omite {{segment}} (a fost omis de {{count}} ori)",
             "skip": "Omite {{segment}}",
             "skipToHighlight": "Sari la momentul de interes"
+        }
+    },
+    "player": {
+        "playbackSpeed": {
+            "title": "Playback Speed",
+            "button": "Speed Controls",
+            "fixStuttering": "Fix stuttering (1.0001x)"
+        },
+        "miniPlayer": "Mini Player",
+        "pictureInPicture": "Picture in Picture",
+        "previous": "Previous",
+        "next": "Next",
+        "withTizenTube": "with TizenTube",
+        "share": {
+            "title": "Share",
+            "button": "Share",
+            "qrCodeScanMessage": "Scan the QR code below to share this video."
+        },
+        "screenOff": "Turn off screen"
+    },
+    "toasts": {
+        "videoAddedToQueue": "Video added to queue.",
+        "videoQueueCleared": "Video queue cleared.",
+        "sidebarContentsUpdated": {
+            "title": "Sidebar Contents Updated",
+            "subtitle": "The sidebar contents have been updated."
         }
     }
 }

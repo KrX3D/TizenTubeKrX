@@ -1,11 +1,12 @@
 const dial = require("@patrickkfkan/peer-dial");
 const express = require('express');
 const cors = require('cors');
+const uuid = require('uuid');
 const app = express();
 
 app.use(cors());
 
-const PORT = 8085;
+const PORT = global.isTizenTube ? 8095 : 8085;
 const apps = {
     "YouTube": {
         name: "YouTube",
@@ -30,7 +31,7 @@ const apps = {
                             }
                         )])
                     ]
-                ), `${tbPackageId}.TizenBrewStandalone`);
+                ), `${tbPackageId}.${global.isTizenTube ? 'TizenTubeStandalone' : 'TizenBrewStandalone'}`);
         }
     }
 };
@@ -41,7 +42,8 @@ const dialServer = new dial.Server({
     prefix: "/dial",
     manufacturer: 'Reis Can',
     modelName: 'TizenBrew',
-    friendlyName: 'TizenTube',
+    friendlyName: `TizenTube (${tizen.systeminfo.getCapability('http://tizen.org/system/model_name')})`,
+    uuid: uuid.v5(tizen.systeminfo.getCapability('http://tizen.org/system/tizenid'), '4bcbc514-bdd6-4163-8215-316526fd1d9b'),
     delegate: {
         getApp(appName) {
             return apps[appName];
@@ -95,7 +97,7 @@ const dialServer = new dial.Server({
 setInterval(() => {
     tizen.application.getAppsContext((appsContext) => {
         const tbPackageId = tizen.application.getAppInfo().packageId;
-        const app = appsContext.find(app => app.appId === `${tbPackageId}.TizenBrewStandalone`);
+        const app = appsContext.find(app => app.appId === `${tbPackageId}.${global.isTizenTube ? 'TizenTubeStandalone' : 'TizenBrewStandalone'}`);
         if (!app) {
             apps["YouTube"].state = "stopped";
             apps["YouTube"].pid = null;
